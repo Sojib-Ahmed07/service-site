@@ -1,26 +1,131 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  Sorted — design tokens
+  Workwear navy + hi-vis safety orange: the colours of the people who actually do the jobs.
+  Navy carries text and primary actions; orange is reserved for the one thing to press.
+*/
+@theme {
+  --font-display: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Surfaces & text */
+  --color-paper: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-ink: #121a33;
+  --color-muted: #5a6280;
+  --color-subtle: #8d93aa;
+  --color-line: #e4e6ed;
+  --color-line-strong: #cfd3de;
+
+  /* Navy scale (workwear) */
+  --color-ink-50: #f5f6f8;
+  --color-ink-100: #eceef3;
+  --color-ink-200: #dde0e9;
+  --color-ink-300: #b9bfd0;
+  --color-ink-400: #8d93aa;
+  --color-ink-500: #5a6280;
+  --color-ink-600: #3d4568;
+  --color-ink-700: #283055;
+  --color-ink-800: #1b2344;
+  --color-ink-900: #121a33;
+  --color-ink-950: #0b1124;
+
+  /* Hi-vis orange (brand) */
+  --color-brand-50: #fff4ec;
+  --color-brand-100: #ffe5d2;
+  --color-brand-200: #ffc8a3;
+  --color-brand-400: #ff8a47;
+  --color-brand-500: #ff6b1a;
+  --color-brand-600: #ec5609;
+  --color-brand-700: #c2440a;
+  --color-brand-800: #8a3109;
+
+  --color-star: #f5a524;
+
+  /* Feedback */
+  --color-danger: #c4320a;
+  --color-danger-50: #fef1ec;
+  --color-info: #2f55d4;
+  --color-info-50: #eef2ff;
+  --color-warn: #a35a00;
+  --color-warn-50: #fff6e5;
+  --color-success: #12805c;
+  --color-success-50: #e9f7f1;
+
+  --radius-card: 1rem;
+  --radius-field: 0.625rem;
+
+  --shadow-lift: 0 1px 2px rgb(18 26 51 / 0.05), 0 12px 32px -16px rgb(18 26 51 / 0.22);
+  --shadow-float: 0 2px 4px rgb(18 26 51 / 0.06), 0 24px 48px -20px rgb(18 26 51 / 0.35);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-surface text-ink font-sans;
+    font-feature-settings: "ss01", "cv05";
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-ink;
+    font-weight: 600;
+    letter-spacing: -0.028em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-brand-200);
+    color: var(--color-ink);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .container-x {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The one orchestrated motion moment: the hero status card settles in after load. */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.settle {
+  animation: settle 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.settle-late {
+  animation: settle 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.35s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settle,
+  .settle-late {
+    animation: none;
+  }
 }
