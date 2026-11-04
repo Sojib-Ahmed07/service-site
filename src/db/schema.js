@@ -1,9 +1,11 @@
+// src/db/schema.js
 /**
- * Drizzle schema for Neon Postgres — a starting point that matches the UI.
+ * Drizzle schema for Neon Postgres — matches the UI.
  * Two roles only: "customer" and "admin". Providers (your contractors/employees)
  * are records the admin manages; they never log in.
  *
- * Run:  npm run db:generate  →  npm run db:migrate
+ * After changing this file run:  npm run db:push   (dev)
+ * or:                           npm run db:generate && npm run db:migrate   (production)
  */
 import {
   boolean,
@@ -57,9 +59,62 @@ export const users = pgTable(
     role: roleEnum("role").default("customer").notNull(),
     blocked: boolean("blocked").default(false).notNull(),
     marketingOptIn: boolean("marketing_opt_in").default(false).notNull(),
+    notifySms: boolean("notify_sms").default(true).notNull(), // booking updates by SMS
+    notifyEmail: boolean("notify_email").default(true).notNull(), // booking updates by email
+    teamRole: varchar("team_role", { length: 40 }), // admins only: "Owner" | "Operations" | "Support"
     ...timestamps,
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
+);
+/* Auth (Better Auth) ---------------------------------------------------------
+ * Managed by Better Auth (src/server/auth.js). Property names must stay camelCase
+ * as below; column names are snake_case. Passwords live in accounts.password (hashed).
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("sessions_token_idx").on(t.token), index("sessions_user_idx").on(t.userId)],
+);
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(), // "credential" (email + password) | "google"
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    password: text("password"),
+    ...timestamps,
+  },
+  (t) => [index("accounts_user_idx").on(t.userId)],
+);
+export const verifications = pgTable(
+  "verifications",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (t) => [index("verifications_identifier_idx").on(t.identifier)],
 );
 export const addresses = pgTable("addresses", {
   id: serial("id").primaryKey(),
@@ -77,21 +132,30 @@ export const addresses = pgTable("addresses", {
   ...timestamps,
 });
 /* Service areas ------------------------------------------------------------- */
-export const zones = pgTable("zones", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 80 }).notNull(),
-  active: boolean("active").default(true).notNull(),
-});
-export const suburbs = pgTable("suburbs", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 80 }).notNull(),
-  postcode: varchar("postcode", { length: 4 }).notNull(),
-  zoneId: integer("zone_id")
-    .references(() => zones.id)
-    .notNull(),
-  surcharge: numeric("surcharge", { precision: 10, scale: 2 }).default("0").notNull(),
-  active: boolean("active").default(true).notNull(),
-});
+export const zones = pgTable(
+  "zones",
+  {
+    id: serial("id").primaryKey(),
+    name: varchar("name", { length: 80 }).notNull(),
+    active: boolean("active").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+  },
+  (t) => [uniqueIndex("zones_name_idx").on(t.name)],
+);
+export const suburbs = pgTable(
+  "suburbs",
+  {
+    id: serial("id").primaryKey(),
+    name: varchar("name", { length: 80 }).notNull(),
+    postcode: varchar("postcode", { length: 4 }).notNull(),
+    zoneId: integer("zone_id")
+      .references(() => zones.id)
+      .notNull(),
+    surcharge: numeric("surcharge", { precision: 10, scale: 2 }).default("0").notNull(),
+    active: boolean("active").default(true).notNull(),
+  },
+  (t) => [uniqueIndex("suburbs_name_idx").on(t.name)],
+);
 /* Catalogue ----------------------------------------------------------------- */
 export const categories = pgTable(
   "categories",
@@ -103,6 +167,7 @@ export const categories = pgTable(
     icon: varchar("icon", { length: 40 }).notNull(),
     short: varchar("short", { length: 200 }),
     description: text("description"),
+    priceUnit: varchar("price_unit", { length: 20 }), // e.g. "/hr" for hourly services
     includes: jsonb("includes").$type().default([]),
     faqs: jsonb("faqs").$type().default([]),
     heroImage: text("hero_image"),
@@ -253,16 +318,21 @@ export const bookingAddOns = pgTable(
   (t) => [primaryKey({ columns: [t.bookingId, t.addOnId] })],
 );
 /** Timeline: created, assigned, provider contacted, completed, refunds, notes… */
-export const bookingEvents = pgTable("booking_events", {
-  id: serial("id").primaryKey(),
-  bookingId: integer("booking_id")
-    .references(() => bookings.id, { onDelete: "cascade" })
-    .notNull(),
-  type: varchar("type", { length: 40 }).notNull(),
-  message: text("message").notNull(),
-  actorId: text("actor_id").references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+/** type: created | assigned | status | payment | note (internal) | message_customer | message_team */
+export const bookingEvents = pgTable(
+  "booking_events",
+  {
+    id: serial("id").primaryKey(),
+    bookingId: integer("booking_id")
+      .references(() => bookings.id, { onDelete: "cascade" })
+      .notNull(),
+    type: varchar("type", { length: 40 }).notNull(),
+    message: text("message").notNull(),
+    actorId: text("actor_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("booking_events_booking_idx").on(t.bookingId)],
+);
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
   bookingId: integer("booking_id")
@@ -287,17 +357,25 @@ export const payouts = pgTable("payouts", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
 });
 /* Marketing & CMS ------------------------------------------------------------ */
-export const reviews = pgTable("reviews", {
-  id: serial("id").primaryKey(),
-  bookingId: integer("booking_id").references(() => bookings.id),
-  userId: text("user_id").references(() => users.id),
-  categoryId: integer("category_id").references(() => categories.id),
-  rating: integer("rating").notNull(),
-  body: text("body"),
-  status: reviewStatusEnum("status").default("pending").notNull(),
-  featured: boolean("featured").default(false).notNull(),
-  ...timestamps,
-});
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: serial("id").primaryKey(),
+    bookingId: integer("booking_id").references(() => bookings.id),
+    userId: text("user_id").references(() => users.id),
+    categoryId: integer("category_id").references(() => categories.id),
+    // Display snapshot, e.g. "Sophie M." / "Sandy Bay" (kept even if the account changes)
+    authorName: varchar("author_name", { length: 120 }),
+    authorSuburb: varchar("author_suburb", { length: 80 }),
+    rating: integer("rating").notNull(),
+    body: text("body"),
+    reply: text("reply"), // public reply from the Sorted team
+    status: reviewStatusEnum("status").default("pending").notNull(),
+    featured: boolean("featured").default(false).notNull(),
+    ...timestamps,
+  },
+  (t) => [index("reviews_category_idx").on(t.categoryId), index("reviews_status_idx").on(t.status)],
+);
 export const coupons = pgTable(
   "coupons",
   {
@@ -337,6 +415,7 @@ export const posts = pgTable(
     title: varchar("title", { length: 200 }).notNull(),
     excerpt: varchar("excerpt", { length: 300 }),
     body: text("body"),
+    blocks: jsonb("blocks").$type().default([]), // same block format as pages (ContentEditor)
     coverImage: text("cover_image"),
     category: varchar("category", { length: 60 }),
     status: publishStatusEnum("status").default("draft").notNull(),
@@ -358,6 +437,7 @@ export const faqs = pgTable("faqs", {
   id: serial("id").primaryKey(),
   question: varchar("question", { length: 255 }).notNull(),
   answer: text("answer").notNull(),
+  section: varchar("section", { length: 40 }).default("general").notNull(), // "general" | "payments"
   categoryId: integer("category_id").references(() => categories.id), // null = general FAQ
   sortOrder: integer("sort_order").default(0).notNull(),
 });
@@ -367,6 +447,7 @@ export const enquiries = pgTable("enquiries", {
   email: varchar("email", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 32 }),
   type: varchar("type", { length: 40 }).default("General"),
+  bookingRef: varchar("booking_ref", { length: 16 }),
   subject: varchar("subject", { length: 200 }),
   message: text("message").notNull(),
   status: enquiryStatusEnum("status").default("open").notNull(),
@@ -379,11 +460,20 @@ export const partnerApplications = pgTable("partner_applications", {
   email: varchar("email", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 32 }).notNull(),
   abn: varchar("abn", { length: 20 }),
-  skills: jsonb("skills").$type().default([]),
+  experience: varchar("experience", { length: 20 }),
+  skills: jsonb("skills").$type().default([]), // category slugs
   zones: jsonb("zones").$type().default([]),
   message: text("message"),
   status: applicationStatusEnum("status").default("new").notNull(),
   ...timestamps,
+});
+/** Admin activity feed on the dashboard. actorName is a snapshot ("System", "Rachel (admin)"). */
+export const activityLog = pgTable("activity_log", {
+  id: serial("id").primaryKey(),
+  actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+  actorName: varchar("actor_name", { length: 120 }).default("System").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 /** Key/value store for everything on the admin Settings page. */
 export const siteSettings = pgTable("site_settings", {

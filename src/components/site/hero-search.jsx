@@ -1,13 +1,14 @@
+// src/components/site/hero-search.jsx
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { MapPin, Search } from "lucide-react";
-import { categories, suburbs } from "@/lib/data";
 import { money } from "@/lib/utils";
 import { Photo } from "@/components/ui/photo";
 
-export function HeroSearch() {
+/** categories and suburbs come from the database (passed by the home page). */
+export function HeroSearch({ categories = [], suburbs = [] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [suburb, setSuburb] = useState("");
@@ -18,7 +19,7 @@ export function HeroSearch() {
     const t = q.trim().toLowerCase();
     if (!t) return categories.filter((c) => c.popular);
     return categories.filter((c) => c.name.toLowerCase().includes(t) || c.short.toLowerCase().includes(t)).slice(0, 6);
-  }, [q]);
+  }, [q, categories]);
 
   const go = (slug) => {
     const target = slug ?? (q.trim() ? matches[0]?.slug : undefined);
@@ -62,7 +63,7 @@ export function HeroSearch() {
           >
             <option value="">Suburb</option>
             {suburbs.map((s) => (
-              <option key={s.name} value={s.name}>
+              <option key={s.id} value={s.name}>
                 {s.name}
               </option>
             ))}

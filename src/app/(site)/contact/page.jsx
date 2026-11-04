@@ -1,5 +1,6 @@
+// src/app/(site)/contact/page.jsx
 import { Clock, Mail, MapPin, Phone } from "lucide-react";
-import { site } from "@/lib/site";
+import { getBusiness } from "@/server/queries/settings";
 import { PageHero } from "@/components/site/sections";
 import { ContactForm } from "@/components/site/forms";
 
@@ -7,6 +8,7 @@ export const metadata = { title: "Contact us" };
 
 export default async function ContactPage({ searchParams }) {
   const { type } = await searchParams;
+  const site = await getBusiness();
   const details = [
     { icon: <Phone />, label: "Call", value: site.phone, href: site.phoneHref },
     { icon: <Mail />, label: "Email", value: site.email, href: `mailto:${site.email}` },

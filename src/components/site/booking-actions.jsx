@@ -1,15 +1,21 @@
+// src/components/site/booking-actions.jsx
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Send } from "lucide-react";
-import { timeSlots } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { sendBookingMessage } from "@/server/actions/bookings";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Modal, useToast } from "@/components/ui/interactive";
 
-export function BookingActions({ canChange, completed }) {
+/**
+ * Reschedule / cancel / review / report on a customer's booking.
+ * TODO (batch 3): these modals still only show a confirmation toast; they get Server Actions next.
+ * `timeSlots` come from Settings › Booking rules.
+ */
+export function BookingActions({ canChange, completed, timeSlots = [] }) {
   const [modal, setModal] = useState(null);
   const { toast, toastNode } = useToast();
   const close = () => setModal(null);
@@ -144,10 +150,12 @@ function StarInput() {
   );
 }
 
-/** Customer ↔ Sorted thread. Providers never see or post here. */
-export function MessageThread({ initial }) {
+/** Customer ↔ Sorted thread, saved to the database. Providers never see or post here. */
+export function MessageThread({ bookingRef, initial = [] }) {
   const [msgs, setMsgs] = useState(initial);
   const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [sending, start] = useTransition();
   return (
     <Card>
       <CardHeader title="Messages" description="Talk to the Sorted team about this booking." />
@@ -170,16 +178,30 @@ export function MessageThread({ initial }) {
         className="flex gap-2 border-t border-line p-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!text.trim()) return;
-          setMsgs((x) => [...x, { from: "customer", text, at: new Date().toISOString() }]);
-          setText("");
+          const value = text.trim();
+          if (!value || sending) return;
+          start(async () => {
+            const res = await sendBookingMessage(bookingRef, value);
+            if (!res.ok) return setError(res.error);
+            setError("");
+            setMsgs((x) => [...x, res.message]);
+            setText("");
+          });
         }}
       >
-        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a message" aria-label="Message" />
-        <Button type="submit" size="icon" className="size-11 shrink-0" aria-label="Send">
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Write a message"
+          aria-label="Message"
+          maxLength={2000}
+          disabled={sending}
+        />
+        <Button type="submit" size="icon" className="size-11 shrink-0" aria-label="Send" disabled={sending || !text.trim()}>
           <Send />
         </Button>
       </form>
+      {error && <p className="px-4 pb-3 text-sm text-danger">{error}</p>}
     </Card>
   );
 }

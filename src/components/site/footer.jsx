@@ -1,6 +1,5 @@
+// src/components/site/footer.jsx
 import Link from "next/link";
-import { categories } from "@/lib/data";
-import { site } from "@/lib/site";
 import { Logo } from "./logo";
 
 const company = [
@@ -17,12 +16,14 @@ const help = [
   { href: "/contact", label: "Contact us" },
 ];
 
-export function SiteFooter() {
+/** categories and business come from the database via app/(site)/layout.jsx */
+export function SiteFooter({ categories = [], business }) {
+  const site = business;
   return (
     <footer className="bg-ink-950 text-ink-300">
       <div className="container-x grid gap-12 pb-12 pt-16 lg:grid-cols-[1.2fr_2fr]">
         <div className="max-w-xs">
-          <Logo inverse />
+          <Logo inverse name={site.name} />
           <p className="mt-4 text-[15px] leading-relaxed">
             Fixed-price home services across {site.region}, booked online and looked after by one local team.
           </p>

@@ -1,5 +1,7 @@
+// src/app/(site)/how-it-works/page.jsx
 import { BadgeCheck, FileCheck2, ShieldCheck, UserCheck } from "lucide-react";
-import { CtaBand, HowItWorks, PageHero, TrustStrip } from "@/components/site/sections";
+import { HowItWorks, PageHero } from "@/components/site/sections";
+import { CtaBand, TrustStrip } from "@/components/site/server-sections";
 
 export const metadata = { title: "How it works" };
 

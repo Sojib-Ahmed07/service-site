@@ -1,9 +1,11 @@
+// src/components/site/account-nav.jsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Home, LogOut, MapPin, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { signOut } from "@/server/actions/auth";
 
 const items = [
   { href: "/account", label: "Overview", icon: Home },
@@ -31,12 +33,14 @@ export function AccountNav() {
           </Link>
         );
       })}
-      <Link
-        href="/login"
-        className="flex shrink-0 items-center gap-3 rounded-full px-4 py-2.5 text-[15px] font-medium text-muted hover:text-ink lg:mt-4 lg:rounded-xl"
-      >
-        <LogOut className="size-4" /> Log out
-      </Link>
+      <form action={signOut} className="shrink-0 lg:mt-4">
+        <button
+          type="submit"
+          className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-[15px] font-medium text-muted hover:text-ink lg:rounded-xl"
+        >
+          <LogOut className="size-4" /> Log out
+        </button>
+      </form>
     </nav>
   );
 }

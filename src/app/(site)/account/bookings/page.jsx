@@ -1,15 +1,16 @@
+// src/app/(site)/account/bookings/page.jsx
 import { CalendarDays } from "lucide-react";
-import { bookings, demoUser } from "@/lib/data";
+import { requireUser } from "@/server/session";
+import { getMyBookings, splitBookings } from "@/server/queries/account";
 import { BookingRow } from "@/components/site/booking-row";
 import { Card, EmptyState } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
 
 export const metadata = { title: "My bookings" };
 
-export default function MyBookingsPage() {
-  const mine = bookings.filter((b) => b.customerId === demoUser.id);
-  const upcoming = mine.filter((b) => !["completed", "cancelled"].includes(b.status));
-  const past = mine.filter((b) => ["completed", "cancelled"].includes(b.status));
+export default async function MyBookingsPage() {
+  const user = await requireUser("/account/bookings");
+  const { upcoming, past } = splitBookings(await getMyBookings(user.id));
 
   return (
     <div className="space-y-8">

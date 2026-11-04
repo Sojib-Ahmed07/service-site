@@ -1,9 +1,11 @@
+// src/app/(site)/terms/page.jsx
 import { LegalPage } from "@/components/site/legal";
-import { site } from "@/lib/site";
+import { getBusiness } from "@/server/queries/settings";
 
 export const metadata = { title: "Terms of service" };
 
-const sections = [
+/** Template text — editable from Admin › CMS in a later batch. */
+const sections = (site) => [
   {
     id: "about",
     title: "Who we are",
@@ -48,6 +50,7 @@ const sections = [
   },
 ];
 
-export default function TermsPage() {
-  return <LegalPage title="Terms of service" updated="1 July 2026" sections={sections} />;
+export default async function TermsPage() {
+  const site = await getBusiness();
+  return <LegalPage title="Terms of service" updated="1 July 2026" sections={sections(site)} />;
 }

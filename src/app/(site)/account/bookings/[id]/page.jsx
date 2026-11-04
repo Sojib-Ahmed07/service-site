@@ -1,20 +1,28 @@
+// src/app/(site)/account/bookings/[id]/page.jsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock, Download, KeyRound, MapPin } from "lucide-react";
-import { addOns, bookingMessages, bookingSteps, getBooking, getCategory, getPackage, bookingStatus } from "@/lib/data";
-import { cn, formatDate, money2 } from "@/lib/utils";
+import { ArrowLeft, CalendarDays, Clock, KeyRound, MapPin } from "lucide-react";
+import { bookingStatus, bookingSteps } from "@/lib/constants";
+import { formatISODate } from "@/lib/dates";
+import { cn, money2 } from "@/lib/utils";
+import { requireUser } from "@/server/session";
+import { getMyBooking } from "@/server/queries/account";
+import { getBookingRules } from "@/server/queries/settings";
 import { CategoryIcon } from "@/components/category-icon";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { BookingBadge, PaymentBadge } from "@/components/ui/status";
 import { BookingActions, MessageThread } from "@/components/site/booking-actions";
 
+export const metadata = { title: "Booking" };
+
 export default async function MyBookingDetailPage({ params }) {
   const { id } = await params;
-  const b = getBooking(id);
+  const user = await requireUser(`/account/bookings/${id}`);
+  const [b, rules] = await Promise.all([getMyBooking(user.id, id), getBookingRules()]);
   if (!b) notFound();
-  const c = getCategory(b.category);
-  const p = getPackage(b.packageId);
-  const extras = addOns.filter((a) => b.addOns.includes(a.id));
+  const c = { name: b.categoryName, icon: b.icon };
+  const p = { name: b.packageName, price: b.packagePrice };
+  const extras = b.extras;
   const currentIndex = bookingSteps.indexOf(b.status);
   const cancelled = b.status === "cancelled";
   const canChange = ["new", "assigned", "confirmed"].includes(b.status);
@@ -37,7 +45,7 @@ export default async function MyBookingDetailPage({ params }) {
             </div>
           </div>
         </div>
-        <BookingActions canChange={canChange} completed={b.status === "completed"} />
+        <BookingActions canChange={canChange} completed={b.status === "completed"} timeSlots={rules.timeSlots} />
       </div>
 
       {/* Progress timeline */}
@@ -67,31 +75,24 @@ export default async function MyBookingDetailPage({ params }) {
               <Detail
                 icon={<CalendarDays />}
                 label="Date"
-                value={formatDate(b.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                value={formatISODate(b.date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               />
               <Detail icon={<Clock />} label="Arrival window" value={b.slot} />
               <Detail icon={<MapPin />} label="Address" value={b.address} />
-              <Detail icon={<KeyRound />} label="Access notes" value={b.notes ?? "None added"} />
+              <Detail icon={<KeyRound />} label="Access notes" value={b.notes || "None added"} />
             </dl>
-            {b.providerId && (
+            {b.hasProvider && (
               <p className="border-t border-line px-5 py-4 text-sm text-muted">
                 A vetted Sorted pro has been assigned. For any changes, message us below — we’ll pass it on.
               </p>
             )}
           </Card>
 
-          <MessageThread initial={bookingMessages[b.id] ?? []} />
+          <MessageThread bookingRef={b.id} initial={b.messages} />
         </div>
 
         <Card className="h-fit">
-          <CardHeader
-            title="Payment"
-            action={
-              <button className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-900">
-                <Download className="size-4" /> Tax invoice
-              </button>
-            }
-          />
+          <CardHeader title="Payment" />
           <dl className="space-y-2 p-5 text-[15px]">
             <div className="flex justify-between">
               <dt className="text-muted">{p.name}</dt>
@@ -103,6 +104,18 @@ export default async function MyBookingDetailPage({ params }) {
                 <dd>{money2(a.price)}</dd>
               </div>
             ))}
+            {b.surcharge > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-muted">Travel fee</dt>
+                <dd>{money2(b.surcharge)}</dd>
+              </div>
+            )}
+            {b.discount > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-muted">Promo{b.couponCode ? ` ${b.couponCode}` : ""}</dt>
+                <dd>−{money2(b.discount)}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-line pt-3 font-semibold">
               <dt>Total</dt>
               <dd>{money2(b.total)}</dd>

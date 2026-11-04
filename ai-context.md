@@ -24,9 +24,9 @@
 | Framework | **Next.js 16** (App Router), **React 19** |
 | Styling | **Tailwind CSS v4** (CSS-first config in `src/app/globals.css`, **no `tailwind.config.js`**) |
 | Icons | `lucide-react` |
-| Database | **Neon Postgres + Drizzle ORM** (schema written in `src/db/schema.js`, **not connected yet**) |
-| Data today | All pages read **mock data** from `src/lib/data.js` |
-| Auth | **Not built yet** (UI only). Planned: Better Auth or Auth.js |
+| Database | **Neon Postgres + Drizzle ORM**, connected with `pg` (node-postgres). Schema in `src/db/schema.js`, seed in `src/db/seed.js` |
+| Data today | **Public site + customer account area read the database**. Admin panel pages still read mock data from `src/lib/data.js` (admin layout/sidebar counts are live) |
+| Auth | **Better Auth** (email + password, optional Google) in `src/server/auth.js`. Sessions in DB, route protection in `src/proxy.js` + `requireUser`/`requireAdmin` |
 | Payments | **Not built yet.** Checkout has a marked placeholder. "Pay after the job" option exists. Planned: Stripe (or Square/Tyro) |
 | Package manager | npm |
 | Node | 20.9+ |
@@ -57,16 +57,20 @@
 
 ```bash
 npm install
-cp .env.example .env.local    # Windows: copy .env.example .env.local
-npm run dev                   # http://localhost:3000
+cp .env.example .env.local    # Windows: copy .env.example .env.local  → add DATABASE_URL
+npm run db:push               # create/update tables from src/db/schema.js
+npm run db:seed               # load starter data (once). `npm run db:seed -- --reset` wipes and reseeds (dev only)
+npm run user:password -- --email you@x.com --password "min 8 chars" --admin --name "You"   # create/set an admin login
+npm run dev                   # http://localhost:3000   (GET /api/health checks the DB)
 npm run build                 # production build check
 npm run format                # Prettier (printWidth 130)
 ```
 
-- Customer site: `/` • Admin panel: `/admin`
-- Demo login: on `/login`, any email containing `admin` routes to `/admin`; otherwise `/account`. (Fake, to be replaced by real auth.)
+- Customer site: `/` • Admin panel: `/admin` (admins only)
+- Logins: admins are made only with `npm run user:password -- … --admin`. Seeded customers/admins have no password until you set one with that command or "Forgot your password?".
+- No email provider yet: emails (password reset links) are printed in the server terminal by `src/server/email.js`.
 
-Env vars (`.env.example`): `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL`, `AUTH_SECRET`, `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+Env vars (`.env.example`): `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL` (also Better Auth's base URL; must match the URL you browse), `AUTH_SECRET` (required, 32+ chars), optional `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
 
 ---
 
@@ -83,6 +87,11 @@ Env vars (`.env.example`): `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL`, `AUTH_SECRET`
 - **`next lint` is removed** in Next 16. There is no lint script; use `npm run format`.
 - **Tailwind v4:** tokens are defined with `@theme { --color-...: ...; }` in `globals.css`. A token `--color-ink-900` becomes classes `bg-ink-900`, `text-ink-900`, etc. There is no `tailwind.config.js`. PostCSS uses `@tailwindcss/postcss` (`postcss.config.mjs`).
 - **Path alias:** `@/` → `src/` (defined in `jsconfig.json`).
+- **Data loading:** public pages are `force-dynamic` (set in `app/(site)/layout.jsx`), so they read live DB data on every request. Query helpers are wrapped in React `cache()` to dedupe within a request.
+- **`server-only`:** `src/db/index.js`, `src/server/queries/*`, `src/server/pricing.js` and `components/site/server-sections.jsx` import `"server-only"`. Never import them from a `"use client"` file. Client components get data as props, or call Server Actions in `src/server/actions/*`.
+- **Auth in Server Actions:** call `auth.api.*` with `headers: await headers()`; the `nextCookies()` plugin sets cookies. Don't use Better Auth's `revokeOtherSessions: true` option on change-password (it swaps the current session mid-request and logs the page out) — call `auth.api.revokeOtherSessions` after instead.
+- **DB URL:** `src/db/url.js` rewrites `sslmode=require` → `verify-full` (same security, no pg warning) and drops `channel_binding`.
+- **Dates:** booking dates are plain `"YYYY-MM-DD"` strings in Hobart time. Use `src/lib/dates.js` (`todayISO`, `addDaysISO`, `formatISODate`, `weekdayShort`, `hobartToUTC`). Never `new Date("2026-11-05")` (that is UTC midnight and shifts the day).
 - **Fonts:** loaded from npm (`@fontsource-variable/instrument-sans`) in `src/app/layout.jsx`, not from `next/font/google`.
 - **Images:** service photos use the `Photo` component (`src/components/ui/photo.jsx`), a plain `<img>` with an Unsplash id or full URL and a grey fallback on error. Remote hosts for `next/image` are listed in `next.config.mjs` (`images.unsplash.com`).
 - **Route groups:** `(site)` = public pages with header/footer, `(auth)` = login/register split layout. Parentheses don't appear in URLs.
@@ -153,7 +162,9 @@ src/
       status.jsx            BookingBadge, PaymentBadge, ProviderBadge
     category-icon.jsx       CategoryIcon({ icon, size: "sm"|"md"|"lg" }) — lucide icon in neutral tile
     site/                   header, footer, logo (Logo, LogoMark), hero-search, sections (ServiceCard, ServiceGrid,
-                            ServiceTile, TrustStrip, HowItWorks, ReviewWall, CtaBand, PageHero, MoreLink),
+                            ServiceTile, TrustStripView, HowItWorks, ReviewWallView, CtaBandView, PageHero, MoreLink — no data),
+                            server-sections (async ReviewWall, TrustStrip, CtaBand that load their own data — server only),
+                            blocks (renders ContentEditor blocks),
                             service-browser, package-picker, booking-flow, booking-row, booking-actions (+ MessageThread),
                             account-nav, address-dialog, auth-forms, forms (ContactForm, PartnerForm), legal, suburb-checker
     admin/                  shell (AdminShell), ui (AdminHeader, StatCard, BarChart, ContactButtons, FilterTabs,
@@ -162,12 +173,34 @@ src/
                             payments-view, reviews-manager, cms-manager, content-editor, inbox, settings-view
 
   lib/
-    site.js                 Brand + business details (name, phone, email, address, ABN, hours, region). Change name here.
-    data.js                 MOCK DATA + lookup helpers + status metadata (see section 6)
+    site.js                 DEFAULT business details, used only by the seed and as a fallback. Live values: site_settings "business"
+    data.js                 MOCK DATA, still used by /account and /admin only (delete when those are migrated)
+    constants.js            Status labels/tones (bookingStatus, paymentStatus, providerStatus), bookingSteps, serviceGroups, weekdays, enquiryTypes
+    dates.js                Hobart-safe date helpers (client + server)
     utils.js                cn(), money(), money2(), formatDate(), initials(), gstComponent()
   db/
     schema.js               Drizzle schema (see section 7)
-    index.js                export const db = drizzle(neon(DATABASE_URL), { schema }); export { schema }
+    index.js                pg Pool + drizzle (server only): import { db, schema } from "@/db"
+    url.js                  normalises DATABASE_URL (used by index.js, seed.js, set-password.js, drizzle.config.js)
+    seed.js / seed-data.js  `npm run db:seed` (seed-data.js = the old mock data)
+    set-password.js         `npm run user:password` (create user / set password / --admin)
+  proxy.js                  Next 16 proxy: no session cookie → /login?next=… for /account/* and /admin/*
+  server/                   SERVER ONLY
+    auth.js                 Better Auth config (drizzle adapter, email+password, Google if env set, blocked-user hook)
+    session.js              getCurrentUser(), requireUser(next), requireAdmin(), safeNext(), homeFor()
+    email.js                sendEmail() — logs to the terminal until a provider is added
+    queries/account.js      getMyBookings, splitBookings, getMyBooking(userId, ref), getMySpend, getMyAddresses
+    queries/catalog.js      getCategories, getCategory(slug), getPackagesFor(cat), getAddOnsFor(cat), getAreas, getPublishedReviews, getRatingSummary, getCategoriesBySlugs
+    queries/content.js      getFaqs(section), getBanner(placement), getPublishedPosts, getPublishedPost(slug), getLiveCoupons
+    queries/settings.js     getBusiness, getBookingRules, getImages, getOfferSettings (site_settings + fallbacks)
+    pricing.js              priceBooking() (DB prices only), checkCouponRules(), discountFor()
+    actions/checkout.js     "use server": applyCoupon, getSlotAvailability
+    actions/enquiries.js    "use server": submitEnquiry, submitPartnerApplication
+    actions/auth.js         "use server": signIn, signUp, requestPasswordReset, resetPassword, startGoogleSignIn, signOut
+    actions/account.js      "use server": updateProfile, updateNotificationPref, changePassword, saveAddress, deleteAddress, makeDefaultAddress, deleteAccount
+    actions/bookings.js     "use server": sendBookingMessage
+  app/api/auth/[...all]/route.js   Better Auth HTTP handler (reset links, Google callback)
+  app/api/health/route.js   GET → { ok, db }
 ```
 
 **Naming conventions:** files are kebab-case `.jsx` for components and `.js` for logic. Components are **named exports** (`export function BookingFlow`). Pages use `export default`. Each page exports `metadata` or `generateMetadata`.
@@ -214,9 +247,10 @@ src/
 
 ---
 
-## 6. Mock data (`src/lib/data.js`) — shapes the UI depends on
+## 6. Data shapes the UI depends on
 
-When replacing with DB queries, **return objects in these same shapes** (or adapt the component), so the UI keeps working.
+Query helpers return objects in these shapes (DB ids are converted to strings for packages/add-ons). The mock data in `src/lib/data.js` uses the same shapes.
+From the DB: `category.rating` is the average of published reviews (null if none) and `category.reviews` the count; `fromPrice` is the cheapest active package; `popular` = `categories.featured`. Categories with no active package are hidden from the public site. `suburb` also has `id`.
 
 ```js
 category  = { slug, name, icon, group: "Cleaning"|"Outdoor"|"Repairs & trades"|"Moving", short, description,
@@ -251,7 +285,7 @@ status metadata: bookingStatus, paymentStatus, providerStatus ({ label, customer
 
 ## 7. Database (Neon + Drizzle) — `src/db/schema.js`
 
-Not connected yet. The tables match the UI. Enums:
+Connected (node-postgres `pg` driver over TCP, works with Neon's pooled URL and local Postgres). Enums:
 
 - `role`: customer, admin
 - `booking_status`: new, assigned, confirmed, in_progress, completed, cancelled
@@ -267,11 +301,12 @@ Not connected yet. The tables match the UI. Enums:
 
 Tables (key columns):
 
-- `users`: id (text, auth-library compatible), name, email (unique), emailVerified, phone, image, **role**, blocked, marketingOptIn, timestamps
+- `users`: id (text, auth-library compatible), name, email (unique), emailVerified, phone, image, **role**, blocked, marketingOptIn, notifySms, notifyEmail, teamRole (admins: Owner/Operations/Support), timestamps
+- `sessions`, `accounts` (passwords hashed in `accounts.password`, providerId "credential" | "google"), `verifications`: Better Auth tables
 - `addresses`: userId → users, label, line1, line2, suburbId → suburbs, accessNotes, isDefault
-- `zones`: name, active
-- `suburbs`: name, postcode, zoneId → zones, surcharge, active
-- `categories`: slug, name, group, icon, short, description, includes (jsonb), faqs (jsonb), heroImage, seoTitle, seoDescription, sortOrder, featured, status
+- `zones`: name (unique), active, sortOrder
+- `suburbs`: name (unique), postcode, zoneId → zones, surcharge, active
+- `categories`: slug, name, group, icon, short, description, priceUnit, includes (jsonb), faqs (jsonb), heroImage, seoTitle, seoDescription, sortOrder, featured, status
 - `packages`: categoryId, name, summary, price, priceUnit, duration, includes, popular, active, sortOrder
 - `add_ons`: categoryId, name, price, active
 - `providers`: name, business, email, phone, abn, status, payType, payRate, availability (jsonb days), rating, bankBsb, bankAccount, notes
@@ -280,21 +315,23 @@ Tables (key columns):
 - `provider_documents`: providerId, type, fileUrl, expiresOn, verified
 - `bookings`: reference ("HD-xxxxx"), userId, categoryId, packageId, providerId, status, paymentStatus, addressLine, suburbId, accessNotes, serviceDate, timeSlot, subtotal, discount, surcharge, total, providerPay, couponCode, customerNotes, internalNotes
 - `booking_add_ons`: bookingId, addOnId, price (snapshot)
-- `booking_events`: bookingId, type, message, actorId, createdAt (timeline + customer messages + internal notes)
+- `booking_events`: bookingId, type (`created` | `assigned` | `status` | `payment` | `note` internal | `message_customer` | `message_team`), message, actorId, createdAt
 - `payments`: bookingId, provider (stripe/square/manual), providerRef, amount, status
 - `payouts`: providerId, periodStart, periodEnd, amount, jobs, status, paidAt
-- `reviews`: bookingId, userId, categoryId, rating, body, status, featured
+- `reviews`: bookingId, userId, categoryId, authorName, authorSuburb (display snapshot), rating, body, reply, status, featured
 - `coupons`: code, description, type, value, minSpend, usageLimit, usedCount, categoryIds, expiresAt, active
 - `pages`: slug, title, blocks (jsonb, from ContentEditor), seo, status
-- `posts`: slug, title, excerpt, body, coverImage, category, status, publishedAt
+- `posts`: slug, title, excerpt, body, blocks (jsonb, ContentEditor format), coverImage, category, status, publishedAt (readTime is computed)
 - `banners`: text, link, placement ("Top bar" | "Home hero" | "Service pages"), active, startsAt, endsAt
-- `faqs`: question, answer, categoryId?, sortOrder
-- `enquiries`: name, email, phone, type, subject, message, status
-- `partner_applications`: name, business, email, phone, abn, skills, zones, message, status
-- `site_settings`: key, value (jsonb) — business info, booking rules, notification templates, gateway config
+- `faqs`: question, answer, section ("general" | "payments"), categoryId?, sortOrder
+- `enquiries`: name, email, phone, type, bookingRef, subject, message, status
+- `partner_applications`: name, business, email, phone, abn, experience, skills (slugs), zones (names), message, status
+- `activity_log`: actorId?, actorName ("System" or "Rachel (admin)"), message, createdAt
+- `site_settings`: key, value (jsonb). Keys in use: `business` (name, phone, email, address, abn, hours, city, region, description…), `booking` (timeSlots[], minNoticeHours, windowDays, freeCancelHours, lateCancelFeePercent, maxJobsPerSlot, sundays, requireDeposit, depositPercent), `images` (hero, kitchen, livingRoom, movingIn, tradie, cleaner), `offers` (seasonal: slugs[])
 
-Commands: `npm run db:push` (dev), `npm run db:generate` + `npm run db:migrate` (migrations), `npm run db:studio`.
-Client: `import { db, schema } from "@/db";` (neon-http driver). Use Drizzle query builder (`db.select().from(schema.x).where(eq(...))`) or `db.query.x.findMany()`.
+Commands: `npm run db:push` (dev), `npm run db:generate` + `npm run db:migrate` (migrations), `npm run db:studio`, `npm run db:seed`.
+`drizzle.config.js` and `seed.js` load `.env.local` with `@next/env`.
+Client: `import { db, schema } from "@/db";` (pg Pool, transactions supported: `db.transaction(async (tx) => …)`). Use Drizzle query builder (`db.select().from(schema.x).where(eq(...))`) or `db.query.x.findMany()`.
 
 **If you change the schema:** update `schema.js`, tell the user to run `db:push` / migrations, and update the matching shape notes in section 6/7 of this file.
 
@@ -303,24 +340,24 @@ Client: `import { db, schema } from "@/db";` (neon-http driver). Use Drizzle que
 ## 8. How to build common features (recipes)
 
 ### 8.1 Connect a page to the database
-1. Create query functions in `src/server/queries/<area>.js` (server-only), e.g. `getCategories()`, `getBookingById(ref)`. Add `import "server-only";` at the top (install the `server-only` package).
+1. Add query functions in `src/server/queries/<area>.js` (start with `import "server-only";`, wrap in `cache()`).
 2. In the page (Server Component), `await` the query and pass plain data to client components as props.
-3. Map DB rows to the shapes in section 6, or update the component props.
-4. Keep `src/lib/data.js` until every page is migrated. Then delete unused mock exports.
-5. Write `src/db/seed.js` (run with `node --env-file=.env.local src/db/seed.js`) that inserts the mock arrays.
+3. Map DB rows to the shapes in section 6 (convert `numeric` strings with `Number()`).
+4. Keep `src/lib/data.js` until every page is migrated. Then delete it.
 
 ### 8.2 Forms and mutations → Server Actions
 - Put actions in `src/server/actions/<area>.js` with `"use server"` at the top.
-- Validate input (install `zod` if needed), check the session and role, write to the DB, `revalidatePath(...)`, return `{ ok, error }`.
-- In client components, call with `useActionState` or `startTransition`. Every component that needs one already has a `// TODO` comment or a fake `onSubmit` (BookingFlow `confirm`, ContactForm, PartnerForm, BookingActions modals, BookingManager assign/status/payment, ProviderForm, ServiceEditor, CouponsManager, CmsManager, ContentEditor, SettingsView, AddressDialog, profile page).
+- Validate input with `zod` (v4: `z.email()`, `{ error: "msg" }`), check the session and role, write to the DB, `revalidatePath(...)`, return `{ ok, error, fieldErrors }`.
+- Never trust prices from the browser: use `priceBooking()` in `src/server/pricing.js`.
+- In client components, call inside `startTransition` from an `onSubmit` handler (see `useServerForm` in `components/site/forms.jsx`). This avoids React 19 resetting the form fields on error. Every component that needs one already has a `// TODO` comment or a fake `onSubmit` (BookingFlow `confirm`, ContactForm, PartnerForm, BookingActions modals, BookingManager assign/status/payment, ProviderForm, ServiceEditor, CouponsManager, CmsManager, ContentEditor, SettingsView, AddressDialog, profile page).
 
-### 8.3 Auth (two roles)
-- Recommended: **Better Auth** (Drizzle adapter, email+password + Google). Auth.js is fine too.
-- `users.role` defaults to `customer`. Admins are set manually (DB or an admin "Team" invite in Settings).
-- After login: role `admin` → `/admin`, else → `/account` (replace the demo logic in `components/site/auth-forms.jsx`).
-- Protect `/admin/*` (admin only) and `/account/*` (logged in) in `src/proxy.js` **and** re-check inside Server Actions.
-- Replace `demoUser` with the session user in `app/(site)/account/*` and the header ("Log in" → account menu when signed in).
-- The booking flow allows guest checkout with "create an account" ticked by default. Keep that.
+### 8.3 Auth (two roles) — DONE in batch 2
+- Better Auth, `src/server/auth.js`. `users.role` defaults to `customer`; `role`, `blocked`, `teamRole` can't be set from sign-up (`input: false`).
+- After login: admin → `/admin`, customer → `/account` (or a safe relative `?next=`).
+- `/admin/*` and `/account/*`: quick cookie check in `src/proxy.js`, real check in layouts (`requireAdmin()` / `requireUser()`) and again in every Server Action (`getCurrentUser()`).
+- Blocked users: refused at login (session-create hook) and treated as signed out by `getCurrentUser()`.
+- Delete account = anonymise (bookings are kept for tax records), remove addresses, logins and sessions.
+- The booking flow allows guest checkout with "create an account" ticked by default. Guests later set a password with "Forgot your password?" (reset creates the password login if missing).
 
 ### 8.4 Payments
 - Placeholder block in `components/site/booking-flow.jsx`, marked `PAYMENT PLACEHOLDER`.
@@ -368,6 +405,8 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-11-04 | **Batch 2: auth + account area.** Better Auth (login, register, forgot/reset, optional Google), proxy.js, admin protection + live sidebar counts, account overview/bookings/detail/addresses/profile on DB, booking messages saved, `user:password` script, pg sslmode warning fixed, account layout phone overflow fixed. | Next: batch 3 = create bookings from checkout + reschedule/cancel/review/report |
+| 2026-11-04 | **Batch 1: DB connected + public site dynamic.** pg driver, schema additions, seed (`db:seed`), server queries, coupon/slot Server Actions, contact + partner forms save to DB, `/api/health`. Fixed checkout date shifting across time zones. | Next: batch 2 = auth (customer/admin) + account area |
 | 2026-11-03 | UI redesign v2: renamed to **Sorted**, navy + hi-vis orange palette, Instrument Sans, photo-led cards, light admin sidebar | All UI pages complete on mock data |
 | 2026-11-03 | UI v1: full customer site + admin panel (53 routes total) built in JS on Next 16 + Tailwind v4 | Drizzle schema written, not connected |
 
@@ -377,9 +416,11 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 | --- | --- |
 | Customer UI (all pages) | ✅ Done (mock data) |
 | Admin UI (all sections) | ✅ Done (mock data) |
-| Database connection + seed | ⬜ Not started |
-| Replace mock data with queries | ⬜ Not started |
-| Auth (customer/admin) + route protection | ⬜ Not started |
+| Database connection + seed | ✅ Done (batch 1) |
+| Replace mock data with queries | 🟨 Public site + /account done; /admin pages still mock |
+| Contact + partner forms | ✅ Save to DB (batch 1) |
+| Auth (customer/admin) + route protection | ✅ Done (batch 2) |
+| Customer account area | ✅ On DB (batch 2); booking actions (reschedule/cancel/review/report) still toast-only |
 | Booking creation (Server Action) | ⬜ Not started |
 | Admin mutations (assign, status, CRUD) | ⬜ Not started |
 | Payments (Stripe/Square/Tyro) | ⬜ Not decided |
@@ -398,8 +439,11 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 - Terms and Privacy are template text and need a lawyer's review.
 - Photos are Unsplash images (free licence). Replace them with your own when you can.
 - Booking reference format: `HD-#####` (can be changed to `SR-#####` when the DB is connected; keep it consistent).
-- "Fully booked" on the 4th time slot in `BookingFlow` is a visual example only; real availability should come from booking counts vs the "max jobs per window" setting.
-- Sundays are disabled in the date picker (setting exists in Admin › Settings › Booking rules).
+- Slot availability is real: a window is full when non-cancelled bookings on that date reach `booking.maxJobsPerSlot`.
+- Sundays, minimum notice and booking window come from `site_settings.booking`.
+- Ratings shown on the site are computed from published reviews (no hard-coded "4.8 from 4,800+ jobs").
+- Marketing copy (hero headline, how-it-works steps, about/guarantee/terms text) is still in the page files; it moves to the CMS (`pages.blocks`) in the CMS batch.
+- Checkout "Confirm booking" still goes to the success page without saving (booking creation is batch 3).
 
 ---
 

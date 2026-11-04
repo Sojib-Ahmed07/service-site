@@ -1,7 +1,11 @@
+// src/components/site/sections.jsx
+/**
+ * Presentational sections. No data fetching here, because client components
+ * (e.g. ServiceBrowser) import ServiceCard from this file. Data-loading versions
+ * of ReviewWall, TrustStrip and CtaBand live in ./server-sections.jsx.
+ */
 import Link from "next/link";
 import { ArrowUpRight, BadgeCheck, Headphones, ShieldCheck, Star, Wallet } from "lucide-react";
-import { categories, images, reviews, getCategory } from "@/lib/data";
-import { site } from "@/lib/site";
 import { cn, money } from "@/lib/utils";
 import { ButtonLink } from "@/components/ui/button";
 import { Photo } from "@/components/ui/photo";
@@ -32,10 +36,14 @@ export function ServiceCard({ c, size = "md" }) {
           <h3 className="text-[17px] font-semibold tracking-[-0.015em] group-hover:underline group-hover:decoration-ink-300 group-hover:underline-offset-4">
             {c.name}
           </h3>
-          <p className="mt-0.5 flex items-center gap-1 text-sm text-muted">
-            <Star className="size-3.5 fill-star text-star" />
-            <span className="font-medium text-ink">{c.rating}</span> ({c.reviews.toLocaleString()})
-          </p>
+          {c.reviews > 0 ? (
+            <p className="mt-0.5 flex items-center gap-1 text-sm text-muted">
+              <Star className="size-3.5 fill-star text-star" />
+              <span className="font-medium text-ink">{c.rating}</span> ({c.reviews.toLocaleString("en-AU")})
+            </p>
+          ) : (
+            <p className="mt-0.5 text-sm text-muted">{c.short}</p>
+          )}
         </div>
         <p className="tabular whitespace-nowrap text-right text-sm text-muted">
           from
@@ -49,7 +57,7 @@ export function ServiceCard({ c, size = "md" }) {
   );
 }
 
-export function ServiceGrid({ items = categories }) {
+export function ServiceGrid({ items = [] }) {
   return (
     <div className="grid gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((c) => (
@@ -75,12 +83,12 @@ export function ServiceTile({ c }) {
 }
 
 /* Trust strip --------------------------------------------------------------- */
-export function TrustStrip({ className, inverse }) {
+export function TrustStripView({ className, inverse, business }) {
   const items = [
     { icon: <BadgeCheck />, title: "Vetted local pros", body: "ABN, insurance, police check and licence checked." },
     { icon: <Wallet />, title: "Fixed upfront prices", body: "GST included. No surprise call-out fees." },
     { icon: <ShieldCheck />, title: "48-hour guarantee", body: "Not right? We send someone back, free." },
-    { icon: <Headphones />, title: "One local team", body: `Real people in ${site.city}, ${site.hours}.` },
+    { icon: <Headphones />, title: "One local team", body: `Real people in ${business.city}, ${business.hours}.` },
   ];
   return (
     <div className={cn("grid gap-8 sm:grid-cols-2 lg:grid-cols-4", className)}>
@@ -127,9 +135,11 @@ export function HowItWorks() {
 }
 
 /* Reviews ------------------------------------------------------------------- */
-export function ReviewWall({ category }) {
-  const list = reviews.filter((r) => r.status === "published" && (!category || r.category === category)).slice(0, 3);
-  const shown = list.length ? list : reviews.filter((r) => r.status === "published").slice(0, 3);
+export function ReviewWallView({ reviews = [] }) {
+  const shown = reviews;
+  if (!shown.length) {
+    return <p className="text-[15px] text-muted">No reviews yet. Be the first to book and tell us how it went.</p>;
+  }
   return (
     <div className="grid gap-4 md:grid-cols-3">
       {shown.map((r) => (
@@ -141,9 +151,7 @@ export function ReviewWall({ category }) {
               <span className="block font-semibold">{r.name}</span>
               <span className="text-muted">{r.suburb}</span>
             </span>
-            <span className="rounded-md bg-ink-50 px-2 py-1 text-xs font-medium text-ink-600">
-              {getCategory(r.category).name}
-            </span>
+            <span className="rounded-md bg-ink-50 px-2 py-1 text-xs font-medium text-ink-600">{r.categoryName}</span>
           </figcaption>
         </figure>
       ))}
@@ -152,9 +160,10 @@ export function ReviewWall({ category }) {
 }
 
 /* CTA band ------------------------------------------------------------------ */
-export function CtaBand({
+export function CtaBandView({
   title = "Get it off your list this week.",
   body = "Most services can be booked for the next available day.",
+  image,
 }) {
   return (
     <section className="container-x py-16 sm:py-20">
@@ -171,7 +180,11 @@ export function CtaBand({
             </ButtonLink>
           </div>
         </div>
-        <Photo src={images.kitchen} alt="" sizes={900} className="hidden min-h-full md:block" />
+        {image ? (
+          <Photo src={image} alt="" sizes={900} className="hidden min-h-full md:block" />
+        ) : (
+          <div className="hidden bg-ink-800 md:block" aria-hidden />
+        )}
       </div>
     </section>
   );

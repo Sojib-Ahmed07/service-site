@@ -1,3 +1,4 @@
+// src/components/admin/shell.jsx
 "use client";
 
 import Link from "next/link";
@@ -23,17 +24,13 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { bookings, enquiries, partnerApplications, reviews } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { signOut } from "@/server/actions/auth";
 import { LogoMark } from "@/components/site/logo";
 import { Avatar } from "@/components/ui/misc";
 
-const newBookings = bookings.filter((b) => b.status === "new").length;
-const openInbox =
-  enquiries.filter((e) => e.status === "open").length + partnerApplications.filter((a) => a.status === "new").length;
-const pendingReviews = reviews.filter((r) => r.status === "pending").length;
-
-const nav = [
+/** Sidebar links. Counts come from the database (app/admin/layout.jsx). */
+const buildNav = ({ newBookings = 0, openInbox = 0, pendingReviews = 0 } = {}) => [
   { items: [{ href: "/admin", label: "Dashboard", icon: LayoutDashboard }] },
   {
     title: "Operations",
@@ -66,12 +63,13 @@ const nav = [
   { items: [{ href: "/admin/settings", label: "Settings", icon: Settings }] },
 ];
 
-function SidebarContent({ path }) {
+function SidebarContent({ path, counts, businessName }) {
+  const nav = buildNav(counts);
   return (
     <div className="flex h-full flex-col">
       <Link href="/admin" className="flex h-16 shrink-0 items-center gap-2 px-5">
         <LogoMark className="size-7" />
-        <span className="text-[19px] font-semibold tracking-[-0.04em]">sorted</span>
+        <span className="text-[19px] font-semibold tracking-[-0.04em]">{businessName.toLowerCase()}</span>
         <span className="ml-1 rounded-md bg-ink-50 px-1.5 py-0.5 text-[11px] font-medium text-muted ring-1 ring-inset ring-line">
           Admin
         </span>
@@ -115,18 +113,20 @@ function SidebarContent({ path }) {
         >
           <ExternalLink className="size-4 text-ink-400" /> View website
         </Link>
-        <Link
-          href="/login"
-          className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-600 hover:bg-ink-50 hover:text-ink"
-        >
-          <LogOut className="size-4 text-ink-400" /> Log out
-        </Link>
+        <form action={signOut}>
+          <button
+            type="submit"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-600 hover:bg-ink-50 hover:text-ink"
+          >
+            <LogOut className="size-4 text-ink-400" /> Log out
+          </button>
+        </form>
       </div>
     </div>
   );
 }
 
-export function AdminShell({ children }) {
+export function AdminShell({ children, user, counts, businessName = "Sorted" }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
@@ -134,7 +134,7 @@ export function AdminShell({ children }) {
   return (
     <div className="min-h-dvh bg-[#f7f8fa]">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-line bg-white lg:block">
-        <SidebarContent path={path} />
+        <SidebarContent path={path} counts={counts} businessName={businessName} />
       </aside>
 
       {open && (
@@ -148,7 +148,7 @@ export function AdminShell({ children }) {
             >
               <X className="size-5" />
             </button>
-            <SidebarContent path={path} />
+            <SidebarContent path={path} counts={counts} businessName={businessName} />
           </aside>
         </div>
       )}
@@ -170,11 +170,13 @@ export function AdminShell({ children }) {
           <div className="ml-auto flex items-center gap-2">
             <button className="relative rounded-lg p-2 hover:bg-paper" aria-label="Notifications">
               <Bell className="size-5" />
-              <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-danger ring-2 ring-surface" />
+              {(counts?.newBookings ?? 0) + (counts?.openInbox ?? 0) > 0 && (
+                <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-danger ring-2 ring-surface" />
+              )}
             </button>
             <div className="flex items-center gap-2.5 rounded-lg py-1 pl-1 pr-2">
-              <Avatar name="Rachel Bennett" size="sm" />
-              <span className="hidden text-sm font-medium sm:block">Rachel</span>
+              <Avatar name={user.name} size="sm" />
+              <span className="hidden text-sm font-medium sm:block">{user.name.split(" ")[0]}</span>
             </div>
           </div>
         </header>

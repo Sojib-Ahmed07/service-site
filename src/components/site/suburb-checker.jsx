@@ -1,11 +1,13 @@
+// src/components/site/suburb-checker.jsx
 "use client";
 
 import { useState } from "react";
 import { CircleCheck, CircleX, MapPin } from "lucide-react";
-import { suburbs } from "@/lib/data";
+import { money } from "@/lib/utils";
 import { ButtonLink } from "@/components/ui/button";
 
-export function SuburbChecker() {
+/** suburbs come from the database (passed by app/(site)/areas/page.jsx). */
+export function SuburbChecker({ suburbs = [] }) {
   const [q, setQ] = useState("");
   const t = q.trim().toLowerCase();
   const match = t ? suburbs.find((s) => s.name.toLowerCase() === t || s.postcode === t) : null;
@@ -28,7 +30,7 @@ export function SuburbChecker() {
         <div className="mt-2 flex flex-wrap gap-2">
           {suggestions.map((s) => (
             <button
-              key={s.name}
+              key={s.id}
               onClick={() => setQ(s.name)}
               className="rounded-full border border-line bg-surface px-3 py-1 text-sm hover:border-brand-500"
             >
@@ -45,7 +47,7 @@ export function SuburbChecker() {
             <span>
               <span className="block font-semibold">We cover {match.name}.</span>
               <span className="text-sm text-muted">
-                {match.zone}. {match.surcharge ? `A $${match.surcharge} travel fee applies.` : "No travel fee."}
+                {match.zone}. {match.surcharge ? `A ${money(match.surcharge)} travel fee applies.` : "No travel fee."}
               </span>
             </span>
           </p>

@@ -1,5 +1,6 @@
+// src/components/site/logo.jsx
 import Link from "next/link";
-import { site } from "@/lib/site";
+import { site as defaults } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 /** Mark: a hi-vis tile with a tick — the job, done. */
@@ -19,12 +20,13 @@ export function LogoMark({ className }) {
   );
 }
 
-export function Logo({ inverse, href = "/" }) {
+/** `name` is the business name from Settings; falls back to the default brand name. */
+export function Logo({ inverse, href = "/", name = defaults.name }) {
   return (
-    <Link href={href} className="flex items-center gap-2" aria-label={`${site.name} home`}>
+    <Link href={href} className="flex items-center gap-2" aria-label={`${name} home`}>
       <LogoMark className="size-7" />
       <span className={cn("text-[21px] font-semibold tracking-[-0.04em]", inverse ? "text-white" : "text-ink")}>
-        {site.name.toLowerCase()}
+        {name.toLowerCase()}
       </span>
     </Link>
   );

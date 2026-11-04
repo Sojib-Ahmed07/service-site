@@ -1,13 +1,14 @@
+// src/app/(site)/book/success/page.jsx
 import { CalendarCheck, Mail, MessageSquare } from "lucide-react";
+import { formatISODate } from "@/lib/dates";
 import { ButtonLink } from "@/components/ui/button";
 
 export const metadata = { title: "Booking received" };
 
 export default async function BookingSuccessPage({ searchParams }) {
-  const { ref = "HD-24818", service = "Your service", date = "", slot = "" } = await searchParams;
-  const when = date
-    ? `${new Date(date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}${slot ? `, ${slot}` : ""}`
-    : "";
+  const { ref = "", service = "Your service", date = "", slot = "" } = await searchParams;
+  const day = formatISODate(String(date));
+  const when = day ? `${day}${slot ? `, ${slot}` : ""}` : "";
 
   const next = [
     { icon: <Mail />, title: "Confirmation email", body: "A receipt and booking summary are on their way to your inbox." },
@@ -32,7 +33,13 @@ export default async function BookingSuccessPage({ searchParams }) {
         <h1 className="mt-6 text-4xl font-semibold sm:text-5xl">You’re booked in.</h1>
         <p className="mt-4 text-lg text-muted">
           {service}
-          {when && ` on ${when}`}. Your reference is <span className="font-semibold text-ink">{ref}</span>.
+          {when && ` on ${when}`}.
+          {ref && (
+            <>
+              {" "}
+              Your reference is <span className="font-semibold text-ink">{ref}</span>.
+            </>
+          )}
         </p>
       </div>
 

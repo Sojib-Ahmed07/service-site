@@ -1,7 +1,8 @@
+// src/app/(site)/help/page.jsx
 import Link from "next/link";
 import { CalendarClock, CreditCard, LifeBuoy, Mail, Phone, ShieldCheck } from "lucide-react";
-import { faqs } from "@/lib/data";
-import { site } from "@/lib/site";
+import { getFaqs } from "@/server/queries/content";
+import { getBusiness } from "@/server/queries/settings";
 import { PageHero } from "@/components/site/sections";
 import { Accordion } from "@/components/ui/interactive";
 
@@ -14,19 +15,11 @@ const topics = [
   { icon: <LifeBuoy />, title: "Report a problem with a job", href: "/contact?type=complaint" },
 ];
 
-const paymentFaqs = [
-  {
-    q: "When am I charged?",
-    a: "If you pay by card, the amount is authorised at booking and charged once the job is complete. If you choose to pay after the job, we email an invoice due within 7 days.",
-  },
-  { q: "How do refunds work?", a: "Approved refunds go back to the original payment method within 5–10 business days." },
-  { q: "Do I get a tax invoice?", a: "Yes. Every booking has a GST tax invoice you can download from your account." },
-];
-
-export default function HelpPage() {
+export default async function HelpPage() {
+  const [faqs, paymentFaqs, site] = await Promise.all([getFaqs("general"), getFaqs("payments"), getBusiness()]);
   return (
     <>
-      <PageHero title="How can we help?" body="Answers to common questions, or get in touch with our Hobart team." />
+      <PageHero title="How can we help?" body={`Answers to common questions, or get in touch with our ${site.city} team.`} />
       <section className="container-x py-14">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {topics.map((t) => (
@@ -45,18 +38,24 @@ export default function HelpPage() {
 
         <div className="mt-16 grid gap-12 lg:grid-cols-[1fr_320px]">
           <div className="space-y-12">
-            <div>
-              <h2 className="mb-4 text-2xl font-semibold">Bookings</h2>
-              <Accordion items={faqs} />
-            </div>
-            <div id="payments">
-              <h2 className="mb-4 text-2xl font-semibold">Payments</h2>
-              <Accordion items={paymentFaqs} />
-            </div>
+            {faqs.length > 0 && (
+              <div>
+                <h2 className="mb-4 text-2xl font-semibold">Bookings</h2>
+                <Accordion items={faqs} />
+              </div>
+            )}
+            {paymentFaqs.length > 0 && (
+              <div id="payments">
+                <h2 className="mb-4 text-2xl font-semibold">Payments</h2>
+                <Accordion items={paymentFaqs} />
+              </div>
+            )}
           </div>
           <aside className="h-fit rounded-[var(--radius-card)] bg-ink-800 p-6 text-white">
             <p className="font-display text-xl font-semibold text-white">Still stuck?</p>
-            <p className="mt-2 text-ink-100">Our team is in Hobart, {site.hours}.</p>
+            <p className="mt-2 text-ink-100">
+              Our team is in {site.city}, {site.hours}.
+            </p>
             <a href={site.phoneHref} className="mt-5 flex items-center gap-3 font-semibold hover:text-brand-400">
               <Phone className="size-4 text-brand-500" /> {site.phone}
             </a>

@@ -1,17 +1,16 @@
+// src/components/site/header.jsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown, Menu, Phone, X } from "lucide-react";
-import { categories } from "@/lib/data";
-import { site } from "@/lib/site";
+import { serviceGroups } from "@/lib/constants";
 import { cn, money } from "@/lib/utils";
 import { ButtonLink } from "@/components/ui/button";
 import { Photo } from "@/components/ui/photo";
 import { Logo } from "./logo";
 
-const groups = ["Cleaning", "Outdoor", "Repairs & trades", "Moving"];
 const nav = [
   { href: "/how-it-works", label: "How it works" },
   { href: "/areas", label: "Areas" },
@@ -19,7 +18,12 @@ const nav = [
   { href: "/help", label: "Help" },
 ];
 
-export function SiteHeader({ announcement }) {
+/** categories and business come from the database via app/(site)/layout.jsx */
+export function SiteHeader({ announcement, categories = [], business, user = null }) {
+  const site = business;
+  const account = user
+    ? { href: user.role === "admin" ? "/admin" : "/account", label: user.role === "admin" ? "Admin" : "My account" }
+    : { href: "/login", label: "Log in" };
   const [mega, setMega] = useState(false);
   const [mobile, setMobile] = useState(false);
   const pathname = usePathname();
@@ -29,6 +33,7 @@ export function SiteHeader({ announcement }) {
     setMobile(false);
   }, [pathname]);
 
+  const groups = serviceGroups.filter((g) => categories.some((c) => c.group === g));
   const featured = categories.find((c) => c.slug === "end-of-lease-cleaning");
 
   return (
@@ -43,7 +48,7 @@ export function SiteHeader({ announcement }) {
       )}
       <div className="border-b border-line bg-white/95 backdrop-blur-md">
         <div className="container-x flex h-[68px] items-center gap-8">
-          <Logo />
+          <Logo name={site.name} />
 
           <nav className="hidden items-center gap-0.5 lg:flex" onMouseLeave={() => setMega(false)}>
             <button
@@ -96,13 +101,17 @@ export function SiteHeader({ announcement }) {
                       </ul>
                     </div>
                   ))}
-                  <Link href={`/services/${featured.slug}`} className="group overflow-hidden rounded-2xl bg-ink-50">
-                    <Photo src={featured.image} alt="" sizes={600} className="aspect-[16/10]" />
-                    <div className="p-4">
-                      <p className="text-sm font-semibold">Moving out this month?</p>
-                      <p className="mt-0.5 text-sm text-muted">Bond-back cleans with a 72-hour re-clean guarantee.</p>
-                    </div>
-                  </Link>
+                  {featured ? (
+                    <Link href={`/services/${featured.slug}`} className="group overflow-hidden rounded-2xl bg-ink-50">
+                      <Photo src={featured.image} alt="" sizes={600} className="aspect-[16/10]" />
+                      <div className="p-4">
+                        <p className="text-sm font-semibold">Moving out this month?</p>
+                        <p className="mt-0.5 text-sm text-muted">{featured.short}</p>
+                      </div>
+                    </Link>
+                  ) : (
+                    <div />
+                  )}
                 </div>
               </div>
             )}
@@ -116,10 +125,10 @@ export function SiteHeader({ announcement }) {
               <Phone className="size-4" /> {site.phone}
             </a>
             <Link
-              href="/login"
+              href={account.href}
               className="hidden rounded-lg px-3 py-2 text-[15px] font-medium text-ink-700 hover:text-ink sm:block"
             >
-              Log in
+              {account.label}
             </Link>
             <ButtonLink href="/services" variant="accent" className="hidden sm:inline-flex">
               Book a service
@@ -138,7 +147,7 @@ export function SiteHeader({ announcement }) {
       {mobile && (
         <div className="fixed inset-0 z-50 bg-white lg:hidden">
           <div className="container-x flex h-[68px] items-center justify-between border-b border-line">
-            <Logo />
+            <Logo name={site.name} />
             <button className="-mr-2 rounded-lg p-2 hover:bg-ink-50" onClick={() => setMobile(false)} aria-label="Close menu">
               <X className="size-6" />
             </button>
@@ -158,7 +167,7 @@ export function SiteHeader({ announcement }) {
               ))}
             </div>
             <div className="mt-6 divide-y divide-line border-y border-line">
-              {[...nav, { href: "/login", label: "Log in" }].map((n) => (
+              {[...nav, account].map((n) => (
                 <Link key={n.href} href={n.href} className="block py-4 text-lg font-medium">
                   {n.label}
                 </Link>

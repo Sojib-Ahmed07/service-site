@@ -1,31 +1,45 @@
+// src/app/(site)/page.jsx
 import Link from "next/link";
 import { Check, Star } from "lucide-react";
-import { categories, faqs, images, suburbs, zones } from "@/lib/data";
-import { site } from "@/lib/site";
+import { getAreas, getCategories, getRatingSummary } from "@/server/queries/catalog";
+import { getFaqs } from "@/server/queries/content";
+import { getBusiness, getImages } from "@/server/queries/settings";
 import { HeroSearch } from "@/components/site/hero-search";
-import { CtaBand, HowItWorks, MoreLink, ReviewWall, ServiceCard, ServiceTile, TrustStrip } from "@/components/site/sections";
+import { HowItWorks, MoreLink, ServiceCard, ServiceTile } from "@/components/site/sections";
+import { CtaBand, ReviewWall, TrustStrip } from "@/components/site/server-sections";
 import { SectionHeading } from "@/components/ui/misc";
 import { Accordion } from "@/components/ui/interactive";
 import { ButtonLink } from "@/components/ui/button";
 import { Photo } from "@/components/ui/photo";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [categories, { zones, suburbs }, faqs, site, images, rating] = await Promise.all([
+    getCategories(),
+    getAreas(),
+    getFaqs("general"),
+    getBusiness(),
+    getImages(),
+    getRatingSummary(),
+  ]);
   const popular = categories.filter((c) => c.popular);
   return (
     <>
       {/* Hero ------------------------------------------------------------- */}
       <section className="container-x grid gap-10 pb-16 pt-10 sm:pt-14 lg:grid-cols-[1fr_minmax(0,560px)] lg:items-center lg:gap-16 lg:pb-24 lg:pt-16">
         <div>
-          <p className="flex items-center gap-2 text-sm text-muted">
-            <span className="flex">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <Star key={i} className="size-4 fill-star text-star" />
-              ))}
-            </span>
-            <span>
-              <span className="font-semibold text-ink">4.8</span> from 4,800+ jobs across {site.region}
-            </span>
-          </p>
+          {rating.total > 0 && (
+            <p className="flex items-center gap-2 text-sm text-muted">
+              <span className="flex">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <Star key={i} className="size-4 fill-star text-star" />
+                ))}
+              </span>
+              <span>
+                <span className="font-semibold text-ink">{rating.rating}</span> from {rating.total.toLocaleString("en-AU")}{" "}
+                {rating.total === 1 ? "review" : "reviews"} across {site.region}
+              </span>
+            </p>
+          )}
           <h1 className="mt-5 text-[2.6rem] leading-[1.02] tracking-[-0.04em] sm:text-6xl lg:text-[4.1rem]">
             Every job around the house, sorted.
           </h1>
@@ -33,7 +47,7 @@ export default function HomePage() {
             Cleaning, pest control, gardening and repairs at fixed prices. Book in two minutes and we send a vetted local pro.
           </p>
           <div className="mt-8 max-w-xl">
-            <HeroSearch />
+            <HeroSearch categories={categories} suburbs={suburbs} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2 text-sm">
             <span className="mr-1 text-muted">Popular:</span>
@@ -177,7 +191,8 @@ export default function HomePage() {
           <div>
             <h2 className="text-3xl">Covering {site.region}</h2>
             <p className="mt-3 text-lg text-muted">
-              Five zones from Kingston to Brighton. Outer suburbs carry a small travel fee, shown at checkout.
+              {zones.length} {zones.length === 1 ? "zone" : "zones"} across {site.region}. Outer suburbs carry a small travel fee,
+              shown at checkout.
             </p>
             <ButtonLink href="/areas" variant="outline" className="mt-6">
               Check your suburb

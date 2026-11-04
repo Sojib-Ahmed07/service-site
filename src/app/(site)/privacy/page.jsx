@@ -1,9 +1,11 @@
+// src/app/(site)/privacy/page.jsx
 import { LegalPage } from "@/components/site/legal";
-import { site } from "@/lib/site";
+import { getBusiness } from "@/server/queries/settings";
 
 export const metadata = { title: "Privacy policy" };
 
-const sections = [
+/** Template text — editable from Admin › CMS in a later batch. */
+const sections = (site) => [
   {
     id: "collect",
     title: "What we collect",
@@ -34,6 +36,7 @@ const sections = [
   },
 ];
 
-export default function PrivacyPage() {
-  return <LegalPage title="Privacy policy" updated="1 July 2026" sections={sections} />;
+export default async function PrivacyPage() {
+  const site = await getBusiness();
+  return <LegalPage title="Privacy policy" updated="1 July 2026" sections={sections(site)} />;
 }

@@ -1,16 +1,17 @@
+// src/components/site/service-browser.jsx
 "use client";
 
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { categories } from "@/lib/data";
+import { serviceGroups } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ServiceCard } from "@/components/site/sections";
 import { EmptyState } from "@/components/ui/misc";
 import { ButtonLink } from "@/components/ui/button";
 
-const groups = ["All", "Cleaning", "Outdoor", "Repairs & trades", "Moving"];
-
-export function ServiceBrowser({ initialQuery = "", initialGroup = "All", suburb = "" }) {
+/** categories come from the database (passed by app/(site)/services/page.jsx). */
+export function ServiceBrowser({ categories = [], initialQuery = "", initialGroup = "All", suburb = "" }) {
+  const groups = ["All", ...serviceGroups.filter((g) => categories.some((c) => c.group === g))];
   const [q, setQ] = useState(initialQuery);
   const [group, setGroup] = useState(groups.includes(initialGroup) ? initialGroup : "All");
 
@@ -21,7 +22,7 @@ export function ServiceBrowser({ initialQuery = "", initialGroup = "All", suburb
         (group === "All" || c.group === group) &&
         (!t || c.name.toLowerCase().includes(t) || c.short.toLowerCase().includes(t) || c.description.toLowerCase().includes(t)),
     );
-  }, [q, group]);
+  }, [q, group, categories]);
 
   return (
     <section className="container-x py-10">
@@ -68,7 +69,7 @@ export function ServiceBrowser({ initialQuery = "", initialGroup = "All", suburb
         <div className="mt-8 rounded-[var(--radius-card)] border border-dashed border-line-strong bg-surface">
           <EmptyState
             icon={<Search />}
-            title={`No services match “${q}”`}
+            title={q ? `No services match “${q}”` : "No services in this group yet"}
             body="Try a broader word, or tell us what you need and we’ll quote it."
             action={
               <ButtonLink href="/contact" variant="outline" size="sm">

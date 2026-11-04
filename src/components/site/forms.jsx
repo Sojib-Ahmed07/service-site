@@ -1,92 +1,101 @@
+// src/components/site/forms.jsx
 "use client";
 
-import { useState } from "react";
 import { CircleCheck } from "lucide-react";
-import { categories, zones } from "@/lib/data";
+import { enquiryTypes, experienceOptions } from "@/lib/constants";
+import { submitEnquiry, submitPartnerApplication } from "@/server/actions/enquiries";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
+import { useServerForm } from "@/components/ui/use-server-form";
 
-/** Contact / quote form → becomes a row in `enquiries` (Admin › Inbox). */
-export function ContactForm({ defaultType = "General" }) {
-  const [sent, setSent] = useState(false);
-  if (sent) return <Sent title="Message sent" body="Thanks — we reply to most messages within one business day." />;
+const typeLabels = { Complaint: "Problem with a job" };
+
+/** Hidden from people; bots fill it in, and the server then ignores the submission. */
+function Honeypot() {
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault(); // TODO: Server Action → insert into enquiries
-        setSent(true);
-      }}
-      className="grid gap-5 sm:grid-cols-2"
-    >
-      <Field label="Name" htmlFor="c-name">
-        <Input id="c-name" required autoComplete="name" />
+    <div aria-hidden className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
+      <label>
+        Website
+        <input type="text" name="website" tabIndex={-1} autoComplete="off" defaultValue="" />
+      </label>
+    </div>
+  );
+}
+
+/** Contact / quote form → a row in `enquiries` (Admin › Inbox). */
+export function ContactForm({ defaultType = "General" }) {
+  const { pending, result, onSubmit, errors } = useServerForm(submitEnquiry);
+  if (result?.ok) return <Sent title="Message sent" body="Thanks — we reply to most messages within one business day." />;
+  return (
+    <form onSubmit={onSubmit} className="relative grid gap-5 sm:grid-cols-2">
+      <Honeypot />
+      <Field label="Name" htmlFor="c-name" error={errors.name}>
+        <Input id="c-name" name="name" required autoComplete="name" maxLength={120} />
       </Field>
-      <Field label="Email" htmlFor="c-email">
-        <Input id="c-email" type="email" required autoComplete="email" />
+      <Field label="Email" htmlFor="c-email" error={errors.email}>
+        <Input id="c-email" name="email" type="email" required autoComplete="email" maxLength={255} />
       </Field>
-      <Field label="Phone (optional)" htmlFor="c-phone">
-        <Input id="c-phone" type="tel" autoComplete="tel" />
+      <Field label="Phone (optional)" htmlFor="c-phone" error={errors.phone}>
+        <Input id="c-phone" name="phone" type="tel" autoComplete="tel" maxLength={32} />
       </Field>
       <Field label="What’s it about?" htmlFor="c-type">
-        <Select id="c-type" defaultValue={defaultType}>
-          <option>General</option>
-          <option>Quote</option>
-          <option>Booking</option>
-          <option value="Complaint">Problem with a job</option>
-          <option>Commercial</option>
+        <Select id="c-type" name="type" defaultValue={enquiryTypes.includes(defaultType) ? defaultType : "General"}>
+          {enquiryTypes.map((t) => (
+            <option key={t} value={t}>
+              {typeLabels[t] ?? t}
+            </option>
+          ))}
         </Select>
       </Field>
-      <Field label="Booking reference (if any)" htmlFor="c-ref" className="sm:col-span-2">
-        <Input id="c-ref" placeholder="HD-00000" />
+      <Field label="Booking reference (if any)" htmlFor="c-ref" className="sm:col-span-2" error={errors.bookingRef}>
+        <Input id="c-ref" name="bookingRef" placeholder="HD-00000" maxLength={16} className="uppercase" />
       </Field>
-      <Field label="Message" htmlFor="c-msg" className="sm:col-span-2">
-        <Textarea id="c-msg" required rows={5} />
+      <Field label="Message" htmlFor="c-msg" className="sm:col-span-2" error={errors.message}>
+        <Textarea id="c-msg" name="message" required rows={5} maxLength={5000} />
       </Field>
+      {result?.error && <p className="text-sm text-danger sm:col-span-2">{result.error}</p>}
       <div className="sm:col-span-2">
-        <Button type="submit" size="lg">
-          Send message
+        <Button type="submit" size="lg" disabled={pending}>
+          {pending ? "Sending…" : "Send message"}
         </Button>
       </div>
     </form>
   );
 }
 
-/** Partner application → `partner_applications` (Admin › Providers › Applications). No login is created. */
-export function PartnerForm() {
-  const [sent, setSent] = useState(false);
-  if (sent)
+/**
+ * Partner application → `partner_applications` (Admin › Inbox). No login is created.
+ * `categories` and `zones` come from the database (passed by app/(site)/partners/page.jsx).
+ */
+export function PartnerForm({ categories = [], zones = [] }) {
+  const { pending, result, onSubmit, errors } = useServerForm(submitPartnerApplication);
+  if (result?.ok)
     return (
       <Sent title="Application received" body="Our partnerships team will review it and call you within three business days." />
     );
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        setSent(true);
-      }}
-      className="grid gap-5 sm:grid-cols-2"
-    >
-      <Field label="Your name" htmlFor="p-name">
-        <Input id="p-name" required />
+    <form onSubmit={onSubmit} className="relative grid gap-5 sm:grid-cols-2">
+      <Honeypot />
+      <Field label="Your name" htmlFor="p-name" error={errors.name}>
+        <Input id="p-name" name="name" required maxLength={120} autoComplete="name" />
       </Field>
-      <Field label="Business name" htmlFor="p-biz">
-        <Input id="p-biz" required />
+      <Field label="Business name" htmlFor="p-biz" error={errors.business}>
+        <Input id="p-biz" name="business" required maxLength={160} autoComplete="organization" />
       </Field>
-      <Field label="Mobile" htmlFor="p-phone">
-        <Input id="p-phone" type="tel" required />
+      <Field label="Mobile" htmlFor="p-phone" error={errors.phone}>
+        <Input id="p-phone" name="phone" type="tel" required maxLength={32} autoComplete="tel" />
       </Field>
-      <Field label="Email" htmlFor="p-email">
-        <Input id="p-email" type="email" required />
+      <Field label="Email" htmlFor="p-email" error={errors.email}>
+        <Input id="p-email" name="email" type="email" required maxLength={255} autoComplete="email" />
       </Field>
-      <Field label="ABN" htmlFor="p-abn">
-        <Input id="p-abn" inputMode="numeric" placeholder="11 digits" required />
+      <Field label="ABN" htmlFor="p-abn" error={errors.abn}>
+        <Input id="p-abn" name="abn" inputMode="numeric" placeholder="11 digits" required maxLength={14} />
       </Field>
       <Field label="Years of experience" htmlFor="p-exp">
-        <Select id="p-exp">
-          <option>Less than 1</option>
-          <option>1–3</option>
-          <option>3–5</option>
-          <option>5+</option>
+        <Select id="p-exp" name="experience" defaultValue={experienceOptions[0]}>
+          {experienceOptions.map((o) => (
+            <option key={o}>{o}</option>
+          ))}
         </Select>
       </Field>
       <fieldset className="sm:col-span-2">
@@ -96,6 +105,7 @@ export function PartnerForm() {
             <Checkbox key={c.slug} label={c.name} name="skills" value={c.slug} />
           ))}
         </div>
+        {errors.skills && <p className="mt-2 text-sm text-danger">{errors.skills}</p>}
       </fieldset>
       <fieldset className="sm:col-span-2">
         <legend className="text-sm font-medium">Areas you can work in</legend>
@@ -104,14 +114,16 @@ export function PartnerForm() {
             <Checkbox key={z} label={z} name="zones" value={z} />
           ))}
         </div>
+        {errors.zones && <p className="mt-2 text-sm text-danger">{errors.zones}</p>}
       </fieldset>
       <div className="sm:col-span-2 space-y-2.5">
         <Checkbox label="I hold at least $10m public liability insurance" required />
         <Checkbox label="I’m happy to complete a national police check" required />
       </div>
+      {result?.error && <p className="text-sm text-danger sm:col-span-2">{result.error}</p>}
       <div className="sm:col-span-2">
-        <Button type="submit" size="lg">
-          Submit application
+        <Button type="submit" size="lg" disabled={pending}>
+          {pending ? "Sending…" : "Submit application"}
         </Button>
       </div>
     </form>

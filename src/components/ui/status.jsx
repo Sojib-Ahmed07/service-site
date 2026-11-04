@@ -1,5 +1,6 @@
+// src/components/ui/status.jsx
 import { Badge } from "@/components/ui/misc";
-import { bookingStatus, paymentStatus, providerStatus } from "@/lib/data";
+import { bookingStatus, paymentStatus, providerStatus } from "@/lib/constants";
 
 export function BookingBadge({ status, customer }) {
   const s = bookingStatus[status];

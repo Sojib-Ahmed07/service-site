@@ -1,4 +1,6 @@
-import { CtaBand, PageHero, TrustStrip } from "@/components/site/sections";
+// src/app/(site)/about/page.jsx
+import { PageHero } from "@/components/site/sections";
+import { CtaBand, TrustStrip } from "@/components/site/server-sections";
 
 export const metadata = { title: "About us" };
 

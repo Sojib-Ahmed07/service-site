@@ -1,4 +1,6 @@
-import { CtaBand, PageHero } from "@/components/site/sections";
+// src/app/(site)/guarantee/page.jsx
+import { PageHero } from "@/components/site/sections";
+import { CtaBand } from "@/components/site/server-sections";
 
 export const metadata = { title: "Our guarantee" };
 

@@ -1,11 +1,13 @@
+// src/components/site/booking-flow.jsx
 "use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { ArrowLeft, Banknote, Check, CreditCard, Lock, MapPin, Tag } from "lucide-react";
-import { coupons, suburbs, timeSlots } from "@/lib/data";
+import { addDaysISO, formatISODate, todayISO, weekdayIndex } from "@/lib/dates";
 import { cn, money, money2 } from "@/lib/utils";
+import { applyCoupon, getSlotAvailability } from "@/server/actions/checkout";
 import { CategoryIcon } from "@/components/category-icon";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -13,16 +15,18 @@ import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 const steps = ["Address", "Date & time", "Your details", "Payment"];
 
 /**
- * Four-step checkout. Everything is client state for now — on "Confirm booking"
- * replace the router.push with a Server Action that inserts into `bookings`.
+ * Four-step checkout. Services, prices, suburbs, time slots and booking rules come
+ * from the database. Promo codes and slot availability are checked on the server.
+ * TODO (next batch): "Confirm booking" → createBooking Server Action.
  */
-export function BookingFlow({ category, packages, addOns, initialPackageId, initialAddOns, initialSuburb }) {
+export function BookingFlow({ category, packages, addOns, suburbs, rules, initialPackageId, initialAddOns, initialSuburb }) {
   const router = useRouter();
+  const timeSlots = rules.timeSlots ?? [];
   const [step, setStep] = useState(0);
   const [pkgId, setPkgId] = useState(initialPackageId);
   const [extras, setExtras] = useState(initialAddOns);
   const [form, setForm] = useState({
-    suburb: initialSuburb,
+    suburb: suburbs.some((s) => s.name === initialSuburb) ? initialSuburb : "",
     street: "",
     access: "",
     date: "",
@@ -37,19 +41,40 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
   });
   const [couponApplied, setCouponApplied] = useState(null);
   const [couponError, setCouponError] = useState("");
+  const [checkingCoupon, startCouponCheck] = useTransition();
   const [days, setDays] = useState([]);
+  const [slots, setSlots] = useState({ date: "", list: [], error: "", loading: false });
 
   useEffect(() => {
-    // Built on the client so the dates always match the visitor's "today".
+    // Built on the client so "today" is current; dates are Hobart calendar days (YYYY-MM-DD).
+    const today = todayISO();
+    const first = Math.ceil((Number(rules.minNoticeHours) || 0) / 24);
+    const last = Math.max(first, Number(rules.windowDays) || 14);
     const out = [];
-    const start = new Date();
-    for (let i = 1; i <= 14; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      out.push(d);
-    }
+    for (let i = first; i <= last; i++) out.push(addDaysISO(today, i));
     setDays(out);
-  }, []);
+  }, [rules.minNoticeHours, rules.windowDays]);
+
+  // Load which arrival windows are still open whenever the date changes.
+  useEffect(() => {
+    if (!form.date) return;
+    let cancelled = false;
+    setSlots({ date: form.date, list: [], error: "", loading: true });
+    getSlotAvailability(form.date)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.ok) return setSlots({ date: form.date, list: [], error: res.error, loading: false });
+        setSlots({ date: form.date, list: res.slots, error: "", loading: false });
+        // Clear a chosen slot that has just filled up.
+        setForm((f) => (f.slot && res.slots.some((x) => x.slot === f.slot && x.full) ? { ...f, slot: "" } : f));
+      })
+      .catch(
+        () => !cancelled && setSlots({ date: form.date, list: [], error: "Couldn’t load times. Try again.", loading: false }),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [form.date]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const pkg = packages.find((p) => p.id === pkgId);
@@ -57,12 +82,15 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
   const suburbInfo = suburbs.find((s) => s.name === form.suburb);
   const travel = suburbInfo?.surcharge ?? 0;
   const subtotal = pkg.price + chosenExtras.reduce((s, a) => s + a.price, 0) + travel;
-  const discount = couponApplied
-    ? couponApplied.type === "percent"
-      ? Math.round(subtotal * couponApplied.value) / 100
-      : couponApplied.value
+  // The code stays applied only while the selection still meets its minimum spend.
+  const couponValid = Boolean(couponApplied) && subtotal >= couponApplied.minSpend;
+  const discount = couponValid
+    ? Math.min(
+      subtotal,
+      couponApplied.type === "percent" ? Math.round(subtotal * couponApplied.value) / 100 : couponApplied.value,
+    )
     : 0;
-  const total = Math.max(0, subtotal - discount);
+  const total = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
 
   const canContinue = [
     form.suburb && form.street.trim().length > 3,
@@ -71,12 +99,25 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
     form.agree,
   ][step];
 
-  const applyCoupon = () => {
-    const c = coupons.find((x) => x.code === form.coupon.trim().toUpperCase() && x.active);
-    if (!c) return setCouponError("That code isn’t valid or has expired.");
-    if (subtotal < c.minSpend) return setCouponError(`This code needs a minimum spend of ${money(c.minSpend)}.`);
-    setCouponError("");
-    setCouponApplied(c);
+  const onApplyCoupon = () => {
+    const code = form.coupon.trim();
+    if (!code) return setCouponError("Enter a promo code.");
+    startCouponCheck(async () => {
+      const res = await applyCoupon({
+        categorySlug: category.slug,
+        packageId: pkgId,
+        addOnIds: extras,
+        suburb: form.suburb,
+        couponCode: code,
+      });
+      if (!res.ok) {
+        setCouponApplied(null);
+        setCouponError(res.error);
+        return;
+      }
+      setCouponError("");
+      setCouponApplied(res.coupon);
+    });
   };
 
   const confirm = () => {
@@ -128,7 +169,7 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
                 <Select id="suburb" value={form.suburb} onChange={(e) => set("suburb", e.target.value)}>
                   <option value="">Select your suburb</option>
                   {suburbs.map((s) => (
-                    <option key={s.name} value={s.name}>
+                    <option key={s.id} value={s.name}>
                       {s.name} {s.postcode}
                     </option>
                   ))}
@@ -164,43 +205,43 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
               <p className="font-semibold">Choose a day</p>
               <div className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1">
                 {days.length === 0 && <div className="h-20 w-full animate-pulse rounded-2xl bg-paper" />}
-                {days.map((d) => {
-                  const iso = d.toISOString().slice(0, 10);
-                  const sunday = d.getDay() === 0;
+                {days.map((iso) => {
+                  const closed = !rules.sundays && weekdayIndex(iso) === 0;
                   const active = form.date === iso;
                   return (
                     <button
                       key={iso}
                       type="button"
-                      disabled={sunday}
-                      onClick={() => set("date", iso)}
+                      disabled={closed}
+                      onClick={() => setForm((f) => (f.date === iso ? f : { ...f, date: iso, slot: "" }))}
                       className={cn(
                         "flex w-[72px] shrink-0 flex-col items-center rounded-2xl border-2 py-3 transition-colors disabled:opacity-40",
                         active ? "border-ink-900 bg-ink-900 text-white" : "border-line bg-surface hover:border-line-strong",
                       )}
                     >
                       <span className={cn("text-xs", active ? "text-ink-100" : "text-muted")}>
-                        {d.toLocaleDateString("en-AU", { weekday: "short" })}
+                        {formatISODate(iso, { weekday: "short" })}
                       </span>
-                      <span className="font-display text-2xl font-semibold">{d.getDate()}</span>
+                      <span className="font-display text-2xl font-semibold">{Number(iso.slice(8, 10))}</span>
                       <span className={cn("text-xs", active ? "text-ink-100" : "text-muted")}>
-                        {d.toLocaleDateString("en-AU", { month: "short" })}
+                        {formatISODate(iso, { month: "short" })}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <p className="mt-2 text-xs text-muted">We don’t book on Sundays.</p>
+              {!rules.sundays && <p className="mt-2 text-xs text-muted">We don’t book on Sundays.</p>}
 
               <p className="mt-8 font-semibold">Arrival window</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {timeSlots.map((s, i) => {
-                  const full = i === 3; // example of an unavailable slot
+                {timeSlots.map((s) => {
+                  const ready = form.date && slots.date === form.date && !slots.loading && !slots.error;
+                  const full = ready && slots.list.some((x) => x.slot === s && x.full);
                   return (
                     <button
                       key={s}
                       type="button"
-                      disabled={!form.date || full}
+                      disabled={!ready || full}
                       onClick={() => set("slot", s)}
                       className={cn(
                         "rounded-xl border-2 px-4 py-3 text-left text-[15px] font-medium transition-colors disabled:opacity-40",
@@ -214,6 +255,8 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
                 })}
               </div>
               {!form.date && <p className="mt-3 text-sm text-muted">Pick a day to see times.</p>}
+              {form.date && slots.loading && <p className="mt-3 text-sm text-muted">Checking availability…</p>}
+              {form.date && slots.error && <p className="mt-3 text-sm text-danger">{slots.error}</p>}
             </div>
           )}
 
@@ -302,18 +345,33 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
                     <Input
                       id="coupon"
                       value={form.coupon}
-                      onChange={(e) => set("coupon", e.target.value)}
-                      placeholder="e.g. WELCOME15"
+                      onChange={(e) => {
+                        set("coupon", e.target.value);
+                        if (couponApplied) setCouponApplied(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          onApplyCoupon();
+                        }
+                      }}
+                      placeholder="Promo code"
                       className="uppercase"
+                      autoComplete="off"
                     />
-                    <Button type="button" variant="outline" className="h-11" onClick={applyCoupon}>
-                      Apply
+                    <Button type="button" variant="outline" className="h-11" onClick={onApplyCoupon} disabled={checkingCoupon}>
+                      {checkingCoupon ? "Checking…" : "Apply"}
                     </Button>
                   </div>
                 </Field>
-                {couponApplied && (
+                {couponValid && (
                   <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-ink-900">
                     <Tag className="size-3.5" /> {couponApplied.code} applied — you save {money2(discount)}
+                  </p>
+                )}
+                {couponApplied && !couponValid && (
+                  <p className="mt-2 text-sm text-danger">
+                    {couponApplied.code} needs a minimum spend of {money(couponApplied.minSpend)}.
                   </p>
                 )}
               </div>
@@ -405,7 +463,7 @@ export function BookingFlow({ category, packages, addOns, initialPackageId, init
               {form.date && (
                 <p className="flex items-center gap-2 text-muted">
                   <Check className="size-4" />
-                  {new Date(form.date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}
+                  {formatISODate(form.date)}
                   {form.slot && `, ${form.slot}`}
                 </p>
               )}

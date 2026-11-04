@@ -1,6 +1,9 @@
+// src/app/(site)/partners/page.jsx
 import { CalendarCheck2, Receipt, Wrench } from "lucide-react";
 import { PageHero } from "@/components/site/sections";
 import { PartnerForm } from "@/components/site/forms";
+import { getAreas, getCategories } from "@/server/queries/catalog";
+import { getBusiness } from "@/server/queries/settings";
 
 export const metadata = { title: "Work with us" };
 
@@ -22,12 +25,13 @@ const perks = [
   },
 ];
 
-export default function PartnersPage() {
+export default async function PartnersPage() {
+  const [categories, { zones }, business] = await Promise.all([getCategories(), getAreas(), getBusiness()]);
   return (
     <>
       <PageHero
-        title="Work with Sorted"
-        body="We’re looking for reliable, insured cleaners, technicians and tradespeople across Greater Hobart."
+        title={`Work with ${business.name}`}
+        body={`We’re looking for reliable, insured cleaners, technicians and tradespeople across ${business.region}.`}
       />
       <section className="container-x py-14">
         <div className="grid gap-4 md:grid-cols-3">
@@ -44,7 +48,7 @@ export default function PartnersPage() {
         <div className="mt-12 rounded-[var(--radius-card)] border border-line bg-surface p-6 sm:p-10">
           <h2 className="text-2xl font-semibold">Apply to join</h2>
           <p className="mb-8 mt-1 text-muted">Takes about three minutes.</p>
-          <PartnerForm />
+          <PartnerForm categories={categories} zones={zones} />
         </div>
       </section>
     </>
