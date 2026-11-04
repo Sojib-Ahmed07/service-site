@@ -146,6 +146,11 @@ export function ReviewWallView({ reviews = [] }) {
         <figure key={r.id} className="flex flex-col rounded-2xl border border-line bg-white p-6">
           <Stars value={r.rating} />
           <blockquote className="mt-4 flex-1 text-[17px] leading-relaxed tracking-[-0.005em]">“{r.text}”</blockquote>
+          {r.reply && (
+            <p className="mt-4 rounded-xl bg-paper p-3 text-sm text-muted">
+              <span className="font-medium text-ink">Reply from the team:</span> {r.reply}
+            </p>
+          )}
           <figcaption className="mt-6 flex items-center justify-between gap-3 border-t border-line pt-4 text-sm">
             <span>
               <span className="block font-semibold">{r.name}</span>

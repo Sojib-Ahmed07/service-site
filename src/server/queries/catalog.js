@@ -70,6 +70,26 @@ export const getCategories = cache(async () => {
     return rows.filter((r) => prices.has(r.id)).map((r) => toCategory(r, stats, prices));
 });
 
+/**
+ * Just what cards, menus and search need (keeps big fields like FAQs out of the
+ * data sent to the browser for client components).
+ */
+export const toCard = (c) => ({
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    icon: c.icon,
+    group: c.group,
+    short: c.short,
+    description: c.description,
+    fromPrice: c.fromPrice,
+    priceUnit: c.priceUnit,
+    popular: c.popular,
+    rating: c.rating,
+    reviews: c.reviews,
+    image: c.image,
+});
+
 /** One published, bookable service by slug, or null. */
 export const getCategory = cache(async (slug) => {
     const all = await getCategories();
@@ -142,6 +162,7 @@ export const getPublishedReviews = cache(async (categorySlug = null, limit = 3) 
             suburb: reviews.authorSuburb,
             rating: reviews.rating,
             text: reviews.body,
+            reply: reviews.reply,
             date: reviews.createdAt,
             category: categories.slug,
             categoryName: categories.name,

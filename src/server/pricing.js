@@ -48,7 +48,7 @@ export async function checkCouponRules(code, subtotal, categoryId) {
     }
     return {
         ok: true,
-        coupon: { code: c.code, type: c.type, value: Number(c.value), minSpend },
+        coupon: { code: c.code, type: c.type, value: Number(c.value), minSpend, restriction: c.restriction ?? "anyone" },
     };
 }
 

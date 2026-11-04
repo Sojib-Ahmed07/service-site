@@ -319,6 +319,7 @@ async function main() {
                 usedCount: c.uses,
                 categoryIds: null,
                 expiresAt: c.expires ? hobartToUTC(c.expires, "23:59:59") : null,
+                restriction: c.restriction ?? "anyone",
                 active: c.active,
             })),
         );

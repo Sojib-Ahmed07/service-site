@@ -1,3 +1,4 @@
+// src/components/admin/ui.jsx
 import Link from "next/link";
 import { ArrowLeft, Mail, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -50,7 +51,7 @@ export function StatCard({ label, value, delta, hint, tone = "default" }) {
 
 /** Simple, dependency-free bar chart. Swap for Recharts later if you need more. */
 export function BarChart({ data, valueKey, labelKey, format = (v) => v, height = 200 }) {
-  const max = Math.max(...data.map((d) => d[valueKey]));
+  const max = Math.max(1, ...data.map((d) => d[valueKey])); // avoids dividing by zero when every value is 0
   return (
     <div className="flex items-end gap-2 sm:gap-3" style={{ height }}>
       {data.map((d, i) => {

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BadgeCheck, Check, ChevronRight, Clock, ShieldCheck, Star, Wallet } from "lucide-react";
 import { Photo } from "@/components/ui/photo";
-import { getAddOnsFor, getCategories, getCategory, getPackagesFor } from "@/server/queries/catalog";
+import { getAddOnsFor, getCategories, getCategory, getPackagesFor, toCard } from "@/server/queries/catalog";
 import { getBusiness } from "@/server/queries/settings";
 import { PackagePicker } from "@/components/site/package-picker";
 import { ServiceCard } from "@/components/site/sections";
@@ -69,7 +69,7 @@ export default async function ServiceDetailPage({ params, searchParams }) {
         </div>
       </section>
 
-      <PackagePicker category={c} packages={packages} addOns={addOns} suburb={suburb}>
+      <PackagePicker category={toCard(c)} packages={packages} addOns={addOns} suburb={suburb}>
         <section>
           <h2 className="text-2xl font-semibold">What’s included</h2>
           <ul className="mt-5 grid gap-3 sm:grid-cols-2">

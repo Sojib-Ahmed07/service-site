@@ -1,7 +1,7 @@
 // src/app/(site)/page.jsx
 import Link from "next/link";
 import { Check, Star } from "lucide-react";
-import { getAreas, getCategories, getRatingSummary } from "@/server/queries/catalog";
+import { getAreas, getCategories, getRatingSummary, toCard } from "@/server/queries/catalog";
 import { getFaqs } from "@/server/queries/content";
 import { getBusiness, getImages } from "@/server/queries/settings";
 import { HeroSearch } from "@/components/site/hero-search";
@@ -47,7 +47,7 @@ export default async function HomePage() {
             Cleaning, pest control, gardening and repairs at fixed prices. Book in two minutes and we send a vetted local pro.
           </p>
           <div className="mt-8 max-w-xl">
-            <HeroSearch categories={categories} suburbs={suburbs} />
+            <HeroSearch categories={categories.map(toCard)} suburbs={suburbs} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2 text-sm">
             <span className="mr-1 text-muted">Popular:</span>

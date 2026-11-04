@@ -1,3 +1,4 @@
+// src/components/ui/interactive.jsx
 "use client";
 import { cn } from "@/lib/utils";
 import { ChevronDown, X } from "lucide-react";
@@ -39,6 +40,7 @@ export function Tabs({ tabs, defaultTab, className }) {
         {tabs.map((t) => (
           <button
             key={t.id}
+            type="button"
             role="tab"
             aria-selected={active === t.id}
             onClick={() => setActive(t.id)}

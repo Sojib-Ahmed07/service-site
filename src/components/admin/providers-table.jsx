@@ -1,17 +1,18 @@
+// src/components/admin/providers-table.jsx
 "use client";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { BadgeCheck, CircleAlert, Star, Wrench } from "lucide-react";
-import { categories, getCategory, providerStatus, providers, zones } from "@/lib/data";
+import { providerStatus, weekdays as days } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ContactButtons, FilterSelect, FilterTabs, SearchInput } from "@/components/admin/ui";
 import { Avatar, Card, EmptyState, Table, Td, Th } from "@/components/ui/misc";
 import { ProviderBadge } from "@/components/ui/status";
 
-const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-export function ProvidersTable({ initialSkill = "all" }) {
+/** Providers list (from the database). Filtering happens here; the list is small. */
+export function ProvidersTable({ providers, categories, zones, initialSkill = "all" }) {
+  const categoryName = (slug) => categories.find((c) => c.slug === slug)?.name ?? slug;
   const [status, setStatus] = useState("all");
   const [skill, setSkill] = useState(initialSkill);
   const [zone, setZone] = useState("all");
@@ -27,7 +28,7 @@ export function ProvidersTable({ initialSkill = "all" }) {
       .filter((p) => day === "all" || p.availability.includes(day))
       .filter((p) => !t || `${p.name} ${p.business} ${p.email} ${p.phone}`.toLowerCase().includes(t))
       .sort((a, b) => b.rating - a.rating);
-  }, [status, skill, zone, day, q]);
+  }, [providers, status, skill, zone, day, q]);
 
   const tabs = [
     { value: "all", label: "All", count: providers.length },
@@ -55,7 +56,9 @@ export function ProvidersTable({ initialSkill = "all" }) {
           <FilterSelect label="Zone" value={zone} onChange={setZone}>
             <option value="all">Any zone</option>
             {zones.map((z) => (
-              <option key={z}>{z}</option>
+              <option key={z.id} value={z.name}>
+                {z.name}
+              </option>
             ))}
           </FilterSelect>
           <FilterSelect label="Works on" value={day} onChange={setDay}>
@@ -83,7 +86,7 @@ export function ProvidersTable({ initialSkill = "all" }) {
           </thead>
           <tbody>
             {rows.map((p) => {
-              const ok = p.docs.abn && p.docs.insurance && p.docs.policeCheck && p.docs.licence !== false;
+              const ok = p.compliant;
               return (
                 <tr key={p.id} className="hover:bg-paper/60">
                   <Td>
@@ -105,7 +108,7 @@ export function ProvidersTable({ initialSkill = "all" }) {
                             s === skill ? "bg-ink-900 text-white" : "bg-paper ring-1 ring-line",
                           )}
                         >
-                          {getCategory(s).name}
+                          {categoryName(s)}
                         </span>
                       ))}
                     </div>
@@ -129,15 +132,17 @@ export function ProvidersTable({ initialSkill = "all" }) {
                   </Td>
                   <Td>
                     <span className="flex items-center gap-1">
-                      <Star className="size-3.5 fill-star text-star" /> {p.rating}
-                      <span className="text-xs text-muted">({p.jobs})</span>
+                      <Star className="size-3.5 fill-star text-star" /> {p.rating.toFixed(1)}
+                      <span className="text-xs text-muted">({p.jobs} done)</span>
                     </span>
                   </Td>
                   <Td>
                     {ok ? (
                       <BadgeCheck className="size-5 text-brand-600" aria-label="All documents verified" />
                     ) : (
-                      <CircleAlert className="size-5 text-warn" aria-label="Documents missing" />
+                      <span title={`Missing: ${p.missing.join(", ")}`}>
+                        <CircleAlert className="size-5 text-warn" aria-label={`Missing: ${p.missing.join(", ")}`} />
+                      </span>
                     )}
                   </Td>
                   <Td>

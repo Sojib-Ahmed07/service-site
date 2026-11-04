@@ -1,3 +1,4 @@
+// src/app/admin/services/new/page.jsx
 import { AdminHeader } from "@/components/admin/ui";
 import { ServiceEditor } from "@/components/admin/service-editor";
 

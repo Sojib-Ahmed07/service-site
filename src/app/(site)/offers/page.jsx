@@ -2,7 +2,8 @@
 import { Tag } from "lucide-react";
 import { PageHero, ServiceCard } from "@/components/site/sections";
 import { CtaBand } from "@/components/site/server-sections";
-import { getCategoriesBySlugs } from "@/server/queries/catalog";
+import { getCategories, getCategoriesBySlugs } from "@/server/queries/catalog";
+import { couponRestrictions } from "@/lib/constants";
 import { getLiveCoupons } from "@/server/queries/content";
 import { getOfferSettings } from "@/server/queries/settings";
 import { formatDate, money } from "@/lib/utils";
@@ -10,7 +11,8 @@ import { formatDate, money } from "@/lib/utils";
 export const metadata = { title: "Offers" };
 
 export default async function OffersPage() {
-  const [live, settings] = await Promise.all([getLiveCoupons(), getOfferSettings()]);
+  const [live, settings, categories] = await Promise.all([getLiveCoupons(), getOfferSettings(), getCategories()]);
+  const onlyFor = (c) => (c.categoryIds?.length ? categories.find((x) => x.id === c.categoryIds[0])?.name : null);
   const seasonal = await getCategoriesBySlugs(settings.seasonal);
   return (
     <>
@@ -25,6 +27,13 @@ export default async function OffersPage() {
                   {c.type === "percent" ? `${c.value}% off` : `${money(c.value)} off`}
                 </p>
                 {c.description && <p className="mt-1 text-ink-100">{c.description}</p>}
+                {(onlyFor(c) || c.restriction !== "anyone") && (
+                  <p className="mt-2 text-sm text-ink-300">
+                    {[onlyFor(c) && `${onlyFor(c)} only`, c.restriction !== "anyone" && couponRestrictions[c.restriction]]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
               </div>
               <div className="flex items-center justify-between gap-4 border-t-2 border-dashed border-line px-6 py-5">
                 <span className="flex items-center gap-2 font-mono text-lg font-semibold tracking-wider">

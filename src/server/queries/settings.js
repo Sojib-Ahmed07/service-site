@@ -22,6 +22,10 @@ const fallback = {
     },
     images: {},
     offers: { seasonal: [] },
+    notifications: {
+        jobSheetTemplate:
+            "New Sorted job {booking_id}\n{service} — {package}\n{date}, {slot}\n{address}\nNotes: {access_notes}\nPay: {provider_pay}\nReply YES to confirm.",
+    },
 };
 
 /** All settings rows in one query, cached for the length of a request. */
@@ -61,3 +65,6 @@ export const getImages = () => getSetting("images");
 
 /** Offers page settings. */
 export const getOfferSettings = () => getSetting("offers");
+
+/** Message templates (Admin › Settings › Notifications). */
+export const getNotificationSettings = () => getSetting("notifications");

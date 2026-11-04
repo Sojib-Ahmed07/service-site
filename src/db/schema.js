@@ -62,6 +62,7 @@ export const users = pgTable(
     notifySms: boolean("notify_sms").default(true).notNull(), // booking updates by SMS
     notifyEmail: boolean("notify_email").default(true).notNull(), // booking updates by email
     teamRole: varchar("team_role", { length: 40 }), // admins only: "Owner" | "Operations" | "Support"
+    adminNotes: text("admin_notes"), // internal notes about a customer (admins only)
     ...timestamps,
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
@@ -218,6 +219,7 @@ export const providers = pgTable(
     status: providerStatusEnum("status").default("onboarding").notNull(),
     payType: payTypeEnum("pay_type").default("per_job").notNull(),
     payRate: varchar("pay_rate", { length: 80 }), // e.g. "70%" or "$68/hr"
+    payoutSchedule: varchar("payout_schedule", { length: 40 }).default("Weekly (Friday)").notNull(),
     availability: jsonb("availability").$type().default([]), // ["Mon","Tue"]
     rating: numeric("rating", { precision: 2, scale: 1 }).default("0"),
     bankBsb: varchar("bank_bsb", { length: 10 }),
@@ -294,6 +296,7 @@ export const bookings = pgTable(
     total: numeric("total", { precision: 10, scale: 2 }).notNull(),
     providerPay: numeric("provider_pay", { precision: 10, scale: 2 }),
     couponCode: varchar("coupon_code", { length: 40 }),
+    payoutId: integer("payout_id").references(() => payouts.id, { onDelete: "set null" }), // set once included in a provider payout
     customerNotes: text("customer_notes"),
     internalNotes: text("internal_notes"),
     ...timestamps,
@@ -374,7 +377,11 @@ export const reviews = pgTable(
     featured: boolean("featured").default(false).notNull(),
     ...timestamps,
   },
-  (t) => [index("reviews_category_idx").on(t.categoryId), index("reviews_status_idx").on(t.status)],
+  (t) => [
+    index("reviews_category_idx").on(t.categoryId),
+    index("reviews_status_idx").on(t.status),
+    uniqueIndex("reviews_booking_idx").on(t.bookingId), // one review per booking
+  ],
 );
 export const coupons = pgTable(
   "coupons",
@@ -387,7 +394,8 @@ export const coupons = pgTable(
     minSpend: numeric("min_spend", { precision: 10, scale: 2 }).default("0"),
     usageLimit: integer("usage_limit"),
     usedCount: integer("used_count").default(0).notNull(),
-    categoryIds: jsonb("category_ids").$type(),
+    categoryIds: jsonb("category_ids").$type(), // null = all services, else [categoryId]
+    restriction: varchar("restriction", { length: 30 }).default("anyone").notNull(), // anyone | first_booking | once_per_customer
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     active: boolean("active").default(true).notNull(),
   },
@@ -450,6 +458,7 @@ export const enquiries = pgTable("enquiries", {
   bookingRef: varchar("booking_ref", { length: 16 }),
   subject: varchar("subject", { length: 200 }),
   message: text("message").notNull(),
+  replies: jsonb("replies").$type().default([]).notNull(), // [{ by, text, at }]
   status: enquiryStatusEnum("status").default("open").notNull(),
   ...timestamps,
 });

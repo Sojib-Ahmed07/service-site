@@ -1166,6 +1166,7 @@ export const coupons = [
         expires: "2026-12-31",
         active: true,
         description: "First booking discount",
+        restriction: "first_booking",
     },
     {
         code: "SPRING25",

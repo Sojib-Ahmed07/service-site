@@ -48,7 +48,7 @@ export default async function PartnersPage() {
         <div className="mt-12 rounded-[var(--radius-card)] border border-line bg-surface p-6 sm:p-10">
           <h2 className="text-2xl font-semibold">Apply to join</h2>
           <p className="mb-8 mt-1 text-muted">Takes about three minutes.</p>
-          <PartnerForm categories={categories} zones={zones} />
+          <PartnerForm categories={categories.map((c) => ({ slug: c.slug, name: c.name }))} zones={zones} />
         </div>
       </section>
     </>

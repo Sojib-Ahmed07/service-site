@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Bell,
@@ -128,6 +128,8 @@ function SidebarContent({ path, counts, businessName }) {
 
 export function AdminShell({ children, user, counts, businessName = "Sorted" }) {
   const path = usePathname();
+  const router = useRouter();
+  const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
 
@@ -158,22 +160,39 @@ export function AdminShell({ children, user, counts, businessName = "Sorted" }) 
           <button onClick={() => setOpen(true)} className="-ml-1 rounded-lg p-2 hover:bg-paper lg:hidden" aria-label="Open menu">
             <Menu className="size-5" />
           </button>
-          <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-line bg-ink-50 px-3 text-sm">
+          <form
+            role="search"
+            className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-line bg-ink-50 px-3 text-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const t = search.trim();
+              router.push(t ? `/admin/bookings?q=${encodeURIComponent(t)}` : "/admin/bookings");
+            }}
+          >
             <Search className="size-4 text-muted" />
-            <span className="sr-only">Search</span>
+            <label htmlFor="admin-search" className="sr-only">
+              Search bookings
+            </label>
             <input
-              placeholder="Search bookings, customers, providers…"
+              id="admin-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search bookings by ID, customer, suburb, provider"
               className="w-full bg-transparent outline-none placeholder:text-subtle"
             />
-            <kbd className="hidden rounded border border-line bg-surface px-1.5 text-[11px] text-muted sm:block">/</kbd>
-          </label>
+          </form>
           <div className="ml-auto flex items-center gap-2">
-            <button className="relative rounded-lg p-2 hover:bg-paper" aria-label="Notifications">
+            <Link
+              href="/admin/bookings?status=new"
+              className="relative rounded-lg p-2 hover:bg-paper"
+              aria-label="Bookings that need assigning"
+              title="Bookings that need assigning"
+            >
               <Bell className="size-5" />
               {(counts?.newBookings ?? 0) + (counts?.openInbox ?? 0) > 0 && (
                 <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-danger ring-2 ring-surface" />
               )}
-            </button>
+            </Link>
             <div className="flex items-center gap-2.5 rounded-lg py-1 pl-1 pr-2">
               <Avatar name={user.name} size="sm" />
               <span className="hidden text-sm font-medium sm:block">{user.name.split(" ")[0]}</span>

@@ -92,5 +92,7 @@ export const getLiveCoupons = cache(async () => {
             minSpend: Number(c.minSpend ?? 0),
             expires: c.expiresAt ? c.expiresAt.toISOString() : null,
             description: c.description ?? "",
+            restriction: c.restriction ?? "anyone",
+            categoryIds: c.categoryIds ?? null,
         }));
 });

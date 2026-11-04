@@ -55,5 +55,11 @@ export async function requireAdmin() {
     return user;
 }
 
+/** For Server Actions: the signed-in admin, or null (never redirects). */
+export async function getAdmin() {
+    const user = await getCurrentUser();
+    return user?.role === "admin" ? user : null;
+}
+
 /** Where to send someone after they sign in. */
 export const homeFor = (user) => (user?.role === "admin" ? "/admin" : "/account");

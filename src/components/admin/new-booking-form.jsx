@@ -1,67 +1,149 @@
+// src/components/admin/new-booking-form.jsx
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { addOnsFor, categories, customers, packagesFor, suburbs, timeSlots } from "@/lib/data";
+import { useMemo, useState, useTransition } from "react";
+import { createAdminBooking } from "@/server/actions/admin-bookings";
 import { money } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 
-export function NewBookingForm() {
+/**
+ * Manual booking for phone/email customers. Prices come from the catalogue
+ * (re-checked on the server) unless an override is entered.
+ * `catalog` = [{ slug, name, packages: [...], addOns: [...] }] from the database.
+ */
+export function NewBookingForm({ catalog, customers, suburbs, timeSlots, initialCustomerId = "" }) {
   const router = useRouter();
-  const [customerMode, setCustomerMode] = useState("existing");
-  const [cat, setCat] = useState(categories[0].slug);
-  const pkgs = packagesFor(cat);
-  const [pkgId, setPkgId] = useState(pkgs[0].id);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState("");
+  const [customerMode, setCustomerMode] = useState(customers.length ? "existing" : "new");
+  const [customerId, setCustomerId] = useState(
+    customers.some((c) => c.id === initialCustomerId) ? initialCustomerId : (customers[0]?.id ?? ""),
+  );
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [cat, setCat] = useState(catalog[0]?.slug ?? "");
+  const category = catalog.find((c) => c.slug === cat);
+  const [pkgId, setPkgId] = useState(category?.packages[0]?.id ?? "");
   const [extras, setExtras] = useState([]);
-  const pkg = pkgs.find((p) => p.id === pkgId) ?? pkgs[0];
+  const [v, setV] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    street: "",
+    suburb: "",
+    date: "",
+    slot: timeSlots[0] ?? "",
+    notes: "",
+    override: "",
+    payment: "later",
+    sendConfirmation: true,
+  });
+  const set = (k) => (e) => setV((x) => ({ ...x, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+
+  const pkg = category?.packages.find((p) => p.id === pkgId) ?? category?.packages[0];
+  const travel = suburbs.find((s) => s.name === v.suburb)?.surcharge ?? 0;
   const total =
-    pkg.price +
-    addOnsFor(cat)
-      .filter((a) => extras.includes(a.id))
-      .reduce((s, a) => s + a.price, 0);
+    (pkg?.price ?? 0) + (category?.addOns ?? []).filter((a) => extras.includes(a.id)).reduce((s, a) => s + a.price, 0) + travel;
+
+  const shownCustomers = useMemo(() => {
+    const t = customerSearch.trim().toLowerCase();
+    const list = t ? customers.filter((c) => `${c.name} ${c.email} ${c.phone ?? ""}`.toLowerCase().includes(t)) : customers;
+    // Keep the selected customer visible (e.g. when the search has no matches)
+    return list.some((c) => c.id === customerId) ? list : [...customers.filter((c) => c.id === customerId), ...list];
+  }, [customers, customerSearch, customerId]);
+
+  if (!catalog.length) {
+    return <Card className="p-8 text-center text-muted">Add a published service with at least one package first.</Card>;
+  }
 
   return (
     <form
-      className="grid gap-6 xl:grid-cols-[1fr_340px]"
+      className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]"
       onSubmit={(e) => {
         e.preventDefault();
-        router.push("/admin/bookings/HD-24817");
+        setError("");
+        start(async () => {
+          const res = await createAdminBooking({
+            customerMode,
+            customerId,
+            name: v.name,
+            email: v.email,
+            phone: v.phone,
+            categorySlug: cat,
+            packageId: pkg?.id ?? "",
+            addOnIds: extras,
+            street: v.street,
+            suburb: v.suburb,
+            date: v.date,
+            slot: v.slot,
+            notes: v.notes,
+            override: v.override,
+            payment: v.payment,
+            sendConfirmation: v.sendConfirmation,
+          });
+          if (!res.ok) return setError(res.error);
+          router.push(`/admin/bookings/${res.reference}`);
+        });
       }}
     >
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         <Card>
           <CardHeader
             title="Customer"
             action={
               <Select value={customerMode} onChange={(e) => setCustomerMode(e.target.value)} className="h-9 w-44 text-sm">
-                <option value="existing">Existing customer</option>
+                <option value="existing" disabled={!customers.length}>
+                  Existing customer
+                </option>
                 <option value="new">New customer</option>
               </Select>
             }
           />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
             {customerMode === "existing" ? (
-              <Field label="Customer" className="sm:col-span-2">
-                <Select>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} — {c.email}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              <>
+                <Field label="Find customer" htmlFor="nb-find">
+                  <Input
+                    id="nb-find"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      const term = e.target.value;
+                      setCustomerSearch(term);
+                      // Select the first match so the booking never goes to a customer hidden by the search.
+                      const t = term.trim().toLowerCase();
+                      const first = t && customers.find((c) => `${c.name} ${c.email} ${c.phone ?? ""}`.toLowerCase().includes(t));
+                      if (first) setCustomerId(first.id);
+                    }}
+                    placeholder="Name, email or phone"
+                  />
+                </Field>
+                <Field label="Customer" htmlFor="nb-customer">
+                  <Select id="nb-customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+                    {shownCustomers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — {c.email}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </>
             ) : (
               <>
-                <Field label="Full name">
-                  <Input required />
+                <Field label="Full name" htmlFor="nb-name">
+                  <Input id="nb-name" value={v.name} onChange={set("name")} required maxLength={120} />
                 </Field>
-                <Field label="Mobile">
-                  <Input type="tel" required />
+                <Field label="Mobile" htmlFor="nb-phone">
+                  <Input id="nb-phone" type="tel" value={v.phone} onChange={set("phone")} required maxLength={32} />
                 </Field>
-                <Field label="Email" className="sm:col-span-2">
-                  <Input type="email" required />
+                <Field
+                  label="Email"
+                  htmlFor="nb-email"
+                  className="sm:col-span-2"
+                  hint="If this email already has an account, the booking is added to it."
+                >
+                  <Input id="nb-email" type="email" value={v.email} onChange={set("email")} required maxLength={255} />
                 </Field>
               </>
             )}
@@ -71,35 +153,37 @@ export function NewBookingForm() {
         <Card>
           <CardHeader title="Service" />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
-            <Field label="Service">
+            <Field label="Service" htmlFor="nb-cat">
               <Select
+                id="nb-cat"
                 value={cat}
                 onChange={(e) => {
+                  const next = catalog.find((c) => c.slug === e.target.value);
                   setCat(e.target.value);
-                  setPkgId(packagesFor(e.target.value)[0].id);
+                  setPkgId(next?.packages[0]?.id ?? "");
                   setExtras([]);
                 }}
               >
-                {categories.map((c) => (
+                {catalog.map((c) => (
                   <option key={c.slug} value={c.slug}>
                     {c.name}
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Package">
-              <Select value={pkgId} onChange={(e) => setPkgId(e.target.value)}>
-                {pkgs.map((p) => (
+            <Field label="Package" htmlFor="nb-pkg">
+              <Select id="nb-pkg" value={pkg?.id ?? ""} onChange={(e) => setPkgId(e.target.value)}>
+                {category?.packages.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} — {money(p.price)}
                   </option>
                 ))}
               </Select>
             </Field>
-            {addOnsFor(cat).length > 0 && (
+            {category?.addOns.length > 0 && (
               <div className="space-y-2 sm:col-span-2">
                 <p className="text-sm font-medium">Extras</p>
-                {addOnsFor(cat).map((a) => (
+                {category.addOns.map((a) => (
                   <Checkbox
                     key={a.id}
                     checked={extras.includes(a.id)}
@@ -113,30 +197,33 @@ export function NewBookingForm() {
         </Card>
 
         <Card>
-          <CardHeader title="Where and when" />
+          <CardHeader title="Where and when" description="Admins can book any day, including Sundays and short notice." />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
-            <Field label="Street address">
-              <Input required />
+            <Field label="Street address" htmlFor="nb-street">
+              <Input id="nb-street" value={v.street} onChange={set("street")} required maxLength={200} />
             </Field>
-            <Field label="Suburb">
-              <Select>
+            <Field label="Suburb" htmlFor="nb-suburb" hint={travel ? `Travel fee ${money(travel)}` : undefined}>
+              <Select id="nb-suburb" value={v.suburb} onChange={set("suburb")} required>
+                <option value="">Select suburb</option>
                 {suburbs.map((s) => (
-                  <option key={s.name}>{s.name}</option>
+                  <option key={s.id} value={s.name}>
+                    {s.name} {s.postcode}
+                  </option>
                 ))}
               </Select>
             </Field>
-            <Field label="Date">
-              <Input type="date" required />
+            <Field label="Date" htmlFor="nb-date">
+              <Input id="nb-date" type="date" value={v.date} onChange={set("date")} required />
             </Field>
-            <Field label="Arrival window">
-              <Select>
+            <Field label="Arrival window" htmlFor="nb-slot">
+              <Select id="nb-slot" value={v.slot} onChange={set("slot")} required>
                 {timeSlots.map((s) => (
                   <option key={s}>{s}</option>
                 ))}
               </Select>
             </Field>
-            <Field label="Access notes" className="sm:col-span-2">
-              <Textarea />
+            <Field label="Access notes" htmlFor="nb-notes" className="sm:col-span-2">
+              <Textarea id="nb-notes" value={v.notes} onChange={set("notes")} maxLength={1000} />
             </Field>
           </div>
         </Card>
@@ -147,21 +234,31 @@ export function NewBookingForm() {
         <div className="space-y-4 p-5">
           <div className="flex items-end justify-between">
             <span className="text-sm text-muted">Total, GST incl.</span>
-            <span className="font-display text-3xl font-semibold">{money(total)}</span>
+            <span className="font-display text-3xl font-semibold">
+              {money(v.override !== "" ? Number(v.override) || 0 : total)}
+            </span>
           </div>
-          <Field label="Price override" hint="Optional, for custom quotes.">
-            <Input type="number" placeholder={String(total)} />
+          <Field label="Price override ($)" htmlFor="nb-override" hint="Optional, for custom quotes.">
+            <Input
+              id="nb-override"
+              type="number"
+              min="0"
+              step="0.01"
+              value={v.override}
+              onChange={set("override")}
+              placeholder={String(total)}
+            />
           </Field>
-          <Field label="Payment">
-            <Select>
-              <option>Send payment link</option>
-              <option>Pay after the job (invoice)</option>
-              <option>Already paid</option>
+          <Field label="Payment" htmlFor="nb-payment">
+            <Select id="nb-payment" value={v.payment} onChange={set("payment")}>
+              <option value="later">Pay after the job (invoice)</option>
+              <option value="paid">Already paid</option>
             </Select>
           </Field>
-          <Checkbox defaultChecked label="Email confirmation to customer" />
-          <Button type="submit" className="w-full" size="lg">
-            Create booking
+          <Checkbox checked={v.sendConfirmation} onChange={set("sendConfirmation")} label="Email confirmation to customer" />
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <Button type="submit" className="w-full" size="lg" disabled={pending}>
+            {pending ? "Creating…" : "Create booking"}
           </Button>
         </div>
       </Card>

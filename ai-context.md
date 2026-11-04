@@ -25,7 +25,7 @@
 | Styling | **Tailwind CSS v4** (CSS-first config in `src/app/globals.css`, **no `tailwind.config.js`**) |
 | Icons | `lucide-react` |
 | Database | **Neon Postgres + Drizzle ORM**, connected with `pg` (node-postgres). Schema in `src/db/schema.js`, seed in `src/db/seed.js` |
-| Data today | **Public site + customer account area read the database**. Admin panel pages still read mock data from `src/lib/data.js` (admin layout/sidebar counts are live) |
+| Data today | **Everything reads the database except Admin › Content (CMS) and Admin › Settings**, which still use mock data from `src/lib/data.js` (batch 6) |
 | Auth | **Better Auth** (email + password, optional Google) in `src/server/auth.js`. Sessions in DB, route protection in `src/proxy.js` + `requireUser`/`requireAdmin` |
 | Payments | **Not built yet.** Checkout has a marked placeholder. "Pay after the job" option exists. Planned: Stripe (or Square/Tyro) |
 | Package manager | npm |
@@ -89,6 +89,10 @@ Env vars (`.env.example`): `DATABASE_URL`, `NEXT_PUBLIC_SITE_URL` (also Better A
 - **Path alias:** `@/` → `src/` (defined in `jsconfig.json`).
 - **Data loading:** public pages are `force-dynamic` (set in `app/(site)/layout.jsx`), so they read live DB data on every request. Query helpers are wrapped in React `cache()` to dedupe within a request.
 - **`server-only`:** `src/db/index.js`, `src/server/queries/*`, `src/server/pricing.js` and `components/site/server-sections.jsx` import `"server-only"`. Never import them from a `"use client"` file. Client components get data as props, or call Server Actions in `src/server/actions/*`.
+- **Admin lists** (bookings, customers) filter/sort/page on the server via URL params (`components/admin/use-query-state.js`, `pager.jsx`). Providers, inbox and reviews load fully and filter on the client (small tables).
+- **Client components get slim data:** pass `toCard(category)` (catalog.js) to client components, not full category rows (FAQs etc.).
+- **Removing packages/extras** used by past bookings sets `active = false` instead of deleting, so booking history keeps its items.
+- **Admin Server Actions** check `getAdmin()` first and log to `activity_log` + `booking_events`.
 - **Auth in Server Actions:** call `auth.api.*` with `headers: await headers()`; the `nextCookies()` plugin sets cookies. Don't use Better Auth's `revokeOtherSessions: true` option on change-password (it swaps the current session mid-request and logs the page out) — call `auth.api.revokeOtherSessions` after instead.
 - **DB URL:** `src/db/url.js` rewrites `sslmode=require` → `verify-full` (same security, no pg warning) and drops `channel_binding`.
 - **Dates:** booking dates are plain `"YYYY-MM-DD"` strings in Hobart time. Use `src/lib/dates.js` (`todayISO`, `addDaysISO`, `formatISODate`, `weekdayShort`, `hobartToUTC`). Never `new Date("2026-11-05")` (that is UTC midnight and shifts the day).
@@ -190,6 +194,21 @@ src/
     session.js              getCurrentUser(), requireUser(next), requireAdmin(), safeNext(), homeFor()
     email.js                sendEmail() — logs to the terminal until a provider is added
     queries/account.js      getMyBookings, splitBookings, getMyBooking(userId, ref), getMySpend, getMyAddresses
+    booking-rules.js        checkDateAllowed, slotStartTime, hoursUntilSlot, lockBookings (advisory lock), slotHasRoom, nextReference, freeChangeHours
+    errors.js               logError(tag, err) — adds "run npm run db:push" hints for missing tables/columns
+    csv.js                  csvResponse(filename, header, rows) — safe CSV downloads
+    queries/admin-catalog.js   getServicesOverview, getServiceForEdit, getAreasAdmin, getCouponsAdmin, getPaymentsOverview,
+                            listPaymentRows (paged), getPayoutsAdmin, getUnbatchedJobs, getPaymentLedger
+    actions/admin-catalog.js   saveService (packages/extras/FAQs in one go), setServiceBookable, saveZone, setZoneActive,
+                            saveSuburb, saveCoupon, setCouponActive, createPayouts, setPayoutStatus, sendPaymentReminder
+    queries/admin.js        getAdminOptions, getProvidersFull (+compliance), getProviderById, getProviderActivity, listBookings (paged),
+                            getAdminBooking (+ ranked candidates), getCustomerPicker, listCustomers (paged), getAdminCustomer,
+                            getInbox, getAllReviews, getDashboard
+    actions/admin-bookings.js  assignProvider, unassignProvider, updateProviderPay, setBookingStatus, recordPayment,
+                            updateBookingDetails, adminCancelBooking, addBookingNote, sendTeamMessage, logJobSheetSent,
+                            notifyCustomerAssigned, emailInvoice, createAdminBooking
+    actions/admin-people.js updateCustomer, setCustomerBlocked, sendCustomerPasswordReset, saveProvider, replyToEnquiry,
+                            setEnquiryStatus, setApplicationStatus (approve → creates onboarding provider), setReviewStatus, saveReviewReply
     queries/catalog.js      getCategories, getCategory(slug), getPackagesFor(cat), getAddOnsFor(cat), getAreas, getPublishedReviews, getRatingSummary, getCategoriesBySlugs
     queries/content.js      getFaqs(section), getBanner(placement), getPublishedPosts, getPublishedPost(slug), getLiveCoupons
     queries/settings.js     getBusiness, getBookingRules, getImages, getOfferSettings (site_settings + fallbacks)
@@ -198,8 +217,9 @@ src/
     actions/enquiries.js    "use server": submitEnquiry, submitPartnerApplication
     actions/auth.js         "use server": signIn, signUp, requestPasswordReset, resetPassword, startGoogleSignIn, signOut
     actions/account.js      "use server": updateProfile, updateNotificationPref, changePassword, saveAddress, deleteAddress, makeDefaultAddress, deleteAccount
-    actions/bookings.js     "use server": sendBookingMessage
+    actions/bookings.js     "use server": createBooking (checkout), rescheduleBooking, cancelBooking, submitReview, reportProblem, sendBookingMessage
   app/api/auth/[...all]/route.js   Better Auth HTTP handler (reset links, Google callback)
+  app/admin/bookings/export/route.js, app/admin/customers/export/route.js, app/admin/payments/export/route.js (Xero CSV)
   app/api/health/route.js   GET → { ok, db }
 ```
 
@@ -301,7 +321,7 @@ Connected (node-postgres `pg` driver over TCP, works with Neon's pooled URL and 
 
 Tables (key columns):
 
-- `users`: id (text, auth-library compatible), name, email (unique), emailVerified, phone, image, **role**, blocked, marketingOptIn, notifySms, notifyEmail, teamRole (admins: Owner/Operations/Support), timestamps
+- `users`: id (text, auth-library compatible), name, email (unique), emailVerified, phone, image, **role**, blocked, marketingOptIn, notifySms, notifyEmail, teamRole (admins: Owner/Operations/Support), adminNotes, timestamps
 - `sessions`, `accounts` (passwords hashed in `accounts.password`, providerId "credential" | "google"), `verifications`: Better Auth tables
 - `addresses`: userId → users, label, line1, line2, suburbId → suburbs, accessNotes, isDefault
 - `zones`: name (unique), active, sortOrder
@@ -309,22 +329,23 @@ Tables (key columns):
 - `categories`: slug, name, group, icon, short, description, priceUnit, includes (jsonb), faqs (jsonb), heroImage, seoTitle, seoDescription, sortOrder, featured, status
 - `packages`: categoryId, name, summary, price, priceUnit, duration, includes, popular, active, sortOrder
 - `add_ons`: categoryId, name, price, active
-- `providers`: name, business, email, phone, abn, status, payType, payRate, availability (jsonb days), rating, bankBsb, bankAccount, notes
+- `providers`: name, business, email, phone, abn, status, payType, payRate, payoutSchedule, availability (jsonb days), rating, bankBsb, bankAccount, notes
+- Provider compliance = ABN, insurance and police check verified and not expired (+ licence if a licence row exists). Shown in Assign panel, providers list, dashboard alerts.
 - `provider_skills`: (providerId, categoryId)
 - `provider_zones`: (providerId, zoneId)
 - `provider_documents`: providerId, type, fileUrl, expiresOn, verified
-- `bookings`: reference ("HD-xxxxx"), userId, categoryId, packageId, providerId, status, paymentStatus, addressLine, suburbId, accessNotes, serviceDate, timeSlot, subtotal, discount, surcharge, total, providerPay, couponCode, customerNotes, internalNotes
+- `bookings`: reference ("HD-xxxxx"), userId, categoryId, packageId, providerId, status, paymentStatus, addressLine, suburbId, accessNotes, serviceDate, timeSlot, subtotal, discount, surcharge, total, providerPay, couponCode, payoutId (set when included in a payout), customerNotes, internalNotes
 - `booking_add_ons`: bookingId, addOnId, price (snapshot)
 - `booking_events`: bookingId, type (`created` | `assigned` | `status` | `payment` | `note` internal | `message_customer` | `message_team`), message, actorId, createdAt
 - `payments`: bookingId, provider (stripe/square/manual), providerRef, amount, status
 - `payouts`: providerId, periodStart, periodEnd, amount, jobs, status, paidAt
 - `reviews`: bookingId, userId, categoryId, authorName, authorSuburb (display snapshot), rating, body, reply, status, featured
-- `coupons`: code, description, type, value, minSpend, usageLimit, usedCount, categoryIds, expiresAt, active
+- `coupons`: code, description, type, value, minSpend, usageLimit, usedCount, categoryIds (null = all), restriction ("anyone" | "first_booking" | "once_per_customer", enforced in createBooking), expiresAt, active
 - `pages`: slug, title, blocks (jsonb, from ContentEditor), seo, status
 - `posts`: slug, title, excerpt, body, blocks (jsonb, ContentEditor format), coverImage, category, status, publishedAt (readTime is computed)
 - `banners`: text, link, placement ("Top bar" | "Home hero" | "Service pages"), active, startsAt, endsAt
 - `faqs`: question, answer, section ("general" | "payments"), categoryId?, sortOrder
-- `enquiries`: name, email, phone, type, bookingRef, subject, message, status
+- `enquiries`: name, email, phone, type, bookingRef, subject, message, replies (jsonb [{by,text,at}]), status
 - `partner_applications`: name, business, email, phone, abn, experience, skills (slugs), zones (names), message, status
 - `activity_log`: actorId?, actorName ("System" or "Rachel (admin)"), message, createdAt
 - `site_settings`: key, value (jsonb). Keys in use: `business` (name, phone, email, address, abn, hours, city, region, description…), `booking` (timeSlots[], minNoticeHours, windowDays, freeCancelHours, lateCancelFeePercent, maxJobsPerSlot, sundays, requireDeposit, depositPercent), `images` (hero, kitchen, livingRoom, movingIn, tradie, cleaner), `offers` (seasonal: slugs[])
@@ -405,6 +426,9 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-11-04 | **Batch 5: catalogue & money.** Services list (bookable switch) + service editor (packages/extras/FAQs/SEO/image URL; used items deactivated not deleted), service areas (zones/suburbs/travel fees/on-off), promo codes (create/edit/pause, per-service, first-booking/once-per-customer rules shown on Offers), payments (paged by status, reminders, Xero CSV) and provider payouts generated from completed jobs (mark paid/hold/undo). Tabs no longer submit forms. Client components receive slim service data. | Next: batch 6 = CMS (pages, homepage, banners, FAQs, blog) + Settings |
+| 2026-11-04 | **Batch 4: admin operations on DB.** Dashboard (live KPIs, weekly revenue, compliance alerts, activity), bookings list (server filters/paging, CSV export), booking manager (assign with pay, status flow with guards, record payment/refund, edit, cancel, notes, team messages, SMS job sheet via sms: link, email invoice), phone bookings, customers (paged, CSV, edit/notes/block/reset), providers (list/add/edit/docs/jobs/payouts), inbox (reply/close/approve → provider), reviews (publish/hide/reply; replies shown publicly). Header search + bell work. | Next: batch 5 = services, areas, coupons, payments/payouts, CMS, settings |
+| 2026-11-04 | **Batch 3: real bookings.** Checkout creates bookings (server-priced, coupon use counted atomically, slot capacity locked, sequential HD- refs, guests get a customer record + optional set-password email, saved addresses prefilled). Customers can reschedule/cancel (until the free-change window), review (one per booking, pending) and report a problem (→ Inbox complaint). Card option disabled until a provider is chosen. | Next: batch 4 = admin panel on DB; payments batch after provider chosen |
 | 2026-11-04 | **Batch 2: auth + account area.** Better Auth (login, register, forgot/reset, optional Google), proxy.js, admin protection + live sidebar counts, account overview/bookings/detail/addresses/profile on DB, booking messages saved, `user:password` script, pg sslmode warning fixed, account layout phone overflow fixed. | Next: batch 3 = create bookings from checkout + reschedule/cancel/review/report |
 | 2026-11-04 | **Batch 1: DB connected + public site dynamic.** pg driver, schema additions, seed (`db:seed`), server queries, coupon/slot Server Actions, contact + partner forms save to DB, `/api/health`. Fixed checkout date shifting across time zones. | Next: batch 2 = auth (customer/admin) + account area |
 | 2026-11-03 | UI redesign v2: renamed to **Sorted**, navy + hi-vis orange palette, Instrument Sans, photo-led cards, light admin sidebar | All UI pages complete on mock data |
@@ -417,13 +441,13 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 | Customer UI (all pages) | ✅ Done (mock data) |
 | Admin UI (all sections) | ✅ Done (mock data) |
 | Database connection + seed | ✅ Done (batch 1) |
-| Replace mock data with queries | 🟨 Public site + /account done; /admin pages still mock |
+| Replace mock data with queries | 🟨 All but Admin › CMS and Admin › Settings (batch 6) |
 | Contact + partner forms | ✅ Save to DB (batch 1) |
 | Auth (customer/admin) + route protection | ✅ Done (batch 2) |
-| Customer account area | ✅ On DB (batch 2); booking actions (reschedule/cancel/review/report) still toast-only |
-| Booking creation (Server Action) | ⬜ Not started |
-| Admin mutations (assign, status, CRUD) | ⬜ Not started |
-| Payments (Stripe/Square/Tyro) | ⬜ Not decided |
+| Customer account area | ✅ On DB (batch 2) + booking actions (batch 3) |
+| Booking creation (Server Action) | ✅ Done (batch 3) |
+| Admin mutations (assign, status, CRUD) | 🟨 Operations (batch 4) + catalogue & money (batch 5) done; CMS + Settings in batch 6 |
+| Payments (cards) | ⬜ Provider not chosen yet (options compared 4 Nov 2026: Stripe 1.7%+30c, Pin Payments from 1.6%+30c, Airwallex 1.65%+30c, Zeller 1.75%+25c, Square online 2.2%). "Pay after the job" works now. |
 | Email + SMS notifications | ⬜ Not started |
 | File uploads | ⬜ Not started |
 | Deploy (Vercel + Neon, Sydney region) | ⬜ Not started |
@@ -443,7 +467,9 @@ Keep this short: date, what changed, files touched, what's next. Newest first.
 - Sundays, minimum notice and booking window come from `site_settings.booking`.
 - Ratings shown on the site are computed from published reviews (no hard-coded "4.8 from 4,800+ jobs").
 - Marketing copy (hero headline, how-it-works steps, about/guarantee/terms text) is still in the page files; it moves to the CMS (`pages.blocks`) in the CMS batch.
-- Checkout "Confirm booking" still goes to the success page without saving (booking creation is batch 3).
+- Booking rules: online reschedule/cancel allowed until `booking.freeCancelHours` before the window starts; after that the customer is told to call. Rescheduling an assigned booking releases the pro (status back to `new`).
+- Guest checkout with an email that already has an account attaches the booking to that account (the owner sees it after logging in). Blocked emails and admin emails are refused.
+- Reviews from customers start as `pending` (Admin › Reviews publishes them).
 
 ---
 

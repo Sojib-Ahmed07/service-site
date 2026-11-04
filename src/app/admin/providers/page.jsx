@@ -1,11 +1,14 @@
+// src/app/admin/providers/page.jsx
 import { ProvidersTable } from "@/components/admin/providers-table";
 import { AdminHeader } from "@/components/admin/ui";
 import { ButtonLink } from "@/components/ui/button";
+import { getAdminOptions, getProvidersFull } from "@/server/queries/admin";
 
 export const metadata = { title: "Providers" };
 
 export default async function ProvidersPage({ searchParams }) {
   const { skill = "all" } = await searchParams;
+  const [providers, options] = await Promise.all([getProvidersFull(), getAdminOptions()]);
   return (
     <>
       <AdminHeader
@@ -17,7 +20,12 @@ export default async function ProvidersPage({ searchParams }) {
           </ButtonLink>
         }
       />
-      <ProvidersTable initialSkill={skill} />
+      <ProvidersTable
+        providers={providers}
+        categories={options.categories}
+        zones={options.zones}
+        initialSkill={options.categories.some((c) => c.slug === skill) ? skill : "all"}
+      />
     </>
   );
 }

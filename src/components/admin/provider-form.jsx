@@ -1,77 +1,108 @@
+// src/components/admin/provider-form.jsx
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FileUp } from "lucide-react";
-import { categories, zones } from "@/lib/data";
+import { saveProvider } from "@/server/actions/admin-people";
+import { weekdays } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { useToast } from "@/components/ui/interactive";
+import { useServerForm } from "@/components/ui/use-server-form";
 
-const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const docTypes = [
   { key: "abn", label: "ABN verified" },
   { key: "insurance", label: "Public liability insurance" },
-  { key: "policeCheck", label: "National police check" },
-  { key: "licence", label: "Trade licence (if required)" },
+  { key: "police_check", label: "National police check" },
+  { key: "licence", label: "Trade licence" },
 ];
 
-/** Create or edit a provider. Providers don’t log in — this is the admin’s record of them. */
-export function ProviderForm({ provider }) {
+/**
+ * Create or edit a provider. Providers don’t log in — this is the admin’s record of them.
+ * `categories` = [{ slug, name }], `zones` = [{ id, name }] from the database.
+ * Document files (certificates) are uploaded in a later batch; for now record status + expiry.
+ */
+export function ProviderForm({ provider, categories, zones }) {
+  const router = useRouter();
+  const { toast, toastNode } = useToast();
   const p = provider ?? {
     name: "",
     business: "",
     phone: "",
     email: "",
+    abn: "",
     skills: [],
     zones: [],
     availability: ["Mon", "Tue", "Wed", "Thu", "Fri"],
     status: "onboarding",
-    payType: "Per job",
+    payType: "per_job",
     rate: "",
-    docs: {},
+    payoutSchedule: "Weekly (Friday)",
+    bankBsb: "",
+    bankAccount: "",
+    rating: 0,
+    docs: [],
     notes: "",
   };
   const [skills, setSkills] = useState(p.skills);
   const [areas, setAreas] = useState(p.zones);
   const [avail, setAvail] = useState(p.availability);
-  const { toast, toastNode } = useToast();
   const toggle = (set) => (v) => set((x) => (x.includes(v) ? x.filter((i) => i !== v) : [...x, v]));
+  const docOf = (type) => p.docs.find((d) => d.type === type);
+
+  const { pending, result, onSubmit, errors } = useServerForm(saveProvider, {
+    onSuccess: (res) => {
+      toast(res.message);
+      if (!provider) router.push(`/admin/providers/${res.id}`);
+      else router.refresh();
+    },
+  });
 
   return (
-    <form
-      className="space-y-6"
-      onSubmit={(e) => {
-        e.preventDefault();
-        toast(provider ? "Provider saved" : "Provider added");
-      }}
-    >
+    <form className="space-y-6" onSubmit={onSubmit}>
+      {provider && <input type="hidden" name="id" value={provider.id} />}
+      {skills.map((s) => (
+        <input key={s} type="hidden" name="skills" value={s} />
+      ))}
+      {areas.map((z) => (
+        <input key={z} type="hidden" name="zones" value={z} />
+      ))}
+      {avail.map((d) => (
+        <input key={d} type="hidden" name="availability" value={d} />
+      ))}
+
+      {result?.error && <p className="rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger">{result.error}</p>}
+
       <Card>
         <CardHeader title="Contact details" />
         <div className="grid gap-4 p-5 sm:grid-cols-2">
-          <Field label="Full name">
-            <Input defaultValue={p.name} required />
+          <Field label="Full name" htmlFor="pv-name" error={errors.name}>
+            <Input id="pv-name" name="name" defaultValue={p.name} required maxLength={120} />
           </Field>
-          <Field label="Business name">
-            <Input defaultValue={p.business} />
+          <Field label="Business name" htmlFor="pv-business" error={errors.business}>
+            <Input id="pv-business" name="business" defaultValue={p.business} maxLength={160} />
           </Field>
-          <Field label="Mobile">
-            <Input type="tel" defaultValue={p.phone} required />
+          <Field label="Mobile" htmlFor="pv-phone" error={errors.phone}>
+            <Input id="pv-phone" name="phone" type="tel" defaultValue={p.phone} required maxLength={32} />
           </Field>
-          <Field label="Email">
-            <Input type="email" defaultValue={p.email} />
+          <Field label="Email" htmlFor="pv-email" error={errors.email}>
+            <Input id="pv-email" name="email" type="email" defaultValue={p.email} maxLength={255} />
           </Field>
-          <Field label="ABN">
-            <Input placeholder="11 digits" />
+          <Field label="ABN" htmlFor="pv-abn" error={errors.abn}>
+            <Input id="pv-abn" name="abn" defaultValue={p.abn} placeholder="11 digits" maxLength={14} />
           </Field>
-          <Field label="Status">
-            <Select defaultValue={p.status}>
+          <Field label="Status" htmlFor="pv-status" hint="Only active providers can be assigned jobs.">
+            <Select id="pv-status" name="status" defaultValue={p.status}>
               <option value="onboarding">Onboarding</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
               <option value="inactive">Inactive</option>
             </Select>
+          </Field>
+          <Field label="Rating (0–5)" htmlFor="pv-rating" hint="Your internal quality score.">
+            <Input id="pv-rating" name="rating" type="number" min="0" max="5" step="0.1" defaultValue={p.rating} />
           </Field>
         </div>
       </Card>
@@ -85,6 +116,7 @@ export function ProviderForm({ provider }) {
             </Chip>
           ))}
         </div>
+        {errors.skills && <p className="px-5 pb-4 text-sm text-danger">{errors.skills}</p>}
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -92,8 +124,8 @@ export function ProviderForm({ provider }) {
           <CardHeader title="Zones covered" />
           <div className="flex flex-wrap gap-2 p-5">
             {zones.map((z) => (
-              <Chip key={z} on={areas.includes(z)} onClick={() => toggle(setAreas)(z)}>
-                {z}
+              <Chip key={z.id} on={areas.includes(z.name)} onClick={() => toggle(setAreas)(z.name)}>
+                {z.name}
               </Chip>
             ))}
           </div>
@@ -101,7 +133,7 @@ export function ProviderForm({ provider }) {
         <Card>
           <CardHeader title="Usual working days" />
           <div className="flex flex-wrap gap-2 p-5">
-            {days.map((d) => (
+            {weekdays.map((d) => (
               <Chip key={d} on={avail.includes(d)} onClick={() => toggle(setAvail)(d)}>
                 {d}
               </Chip>
@@ -113,49 +145,62 @@ export function ProviderForm({ provider }) {
       <Card>
         <CardHeader title="Pay" />
         <div className="grid gap-4 p-5 sm:grid-cols-3">
-          <Field label="Pay type">
-            <Select defaultValue={p.payType}>
-              <option>Per job</option>
-              <option>Hourly</option>
-              <option>Commission</option>
+          <Field label="Pay type" htmlFor="pv-paytype">
+            <Select id="pv-paytype" name="payType" defaultValue={p.payType}>
+              <option value="per_job">Per job</option>
+              <option value="hourly">Hourly</option>
+              <option value="commission">Commission</option>
             </Select>
           </Field>
-          <Field label="Rate" hint="e.g. 70% of job, $68/hr">
-            <Input defaultValue={p.rate} />
+          <Field label="Rate" htmlFor="pv-rate" hint="e.g. 70% of job, $68/hr">
+            <Input id="pv-rate" name="payRate" defaultValue={p.rate} maxLength={80} />
           </Field>
-          <Field label="Payout schedule">
-            <Select>
+          <Field label="Payout schedule" htmlFor="pv-schedule">
+            <Select id="pv-schedule" name="payoutSchedule" defaultValue={p.payoutSchedule}>
               <option>Weekly (Friday)</option>
               <option>Fortnightly</option>
               <option>Per job</option>
             </Select>
           </Field>
-          <Field label="BSB">
-            <Input placeholder="000-000" />
+          <Field label="BSB" htmlFor="pv-bsb" error={errors.bankBsb}>
+            <Input id="pv-bsb" name="bankBsb" defaultValue={p.bankBsb} placeholder="000-000" maxLength={7} />
           </Field>
-          <Field label="Account number" className="sm:col-span-2">
-            <Input />
+          <Field label="Account number" htmlFor="pv-account" className="sm:col-span-2" error={errors.bankAccount}>
+            <Input id="pv-account" name="bankAccount" defaultValue={p.bankAccount} maxLength={12} inputMode="numeric" />
           </Field>
         </div>
       </Card>
 
       <Card>
-        <CardHeader title="Documents" description="Upload certificates and set expiry dates for reminders." />
+        <CardHeader
+          title="Documents"
+          description="Record what you’ve checked and when it expires. Certificate uploads come in a later update."
+        />
         <ul className="divide-y divide-line">
           {docTypes.map((d) => {
-            const v = p.docs?.[d.key];
+            const v = docOf(d.key);
+            const state = v ? (v.verified ? "verified" : "missing") : d.key === "licence" ? "na" : "missing";
             return (
               <li key={d.key} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
-                <div className="flex-1">
-                  <p className="font-medium">{d.label}</p>
-                  <p className={cn("text-sm", v ? "text-ink-900" : v === null ? "text-muted" : "text-warn")}>
-                    {v ? "Verified" : v === null ? "Not required for their services" : "Missing"}
-                  </p>
-                </div>
-                <Input type="date" className="h-9 w-full text-sm sm:w-40" aria-label={`${d.label} expiry`} />
-                <Button type="button" variant="outline" size="sm">
-                  <FileUp /> Upload
-                </Button>
+                <p className="flex-1 font-medium">{d.label}</p>
+                <Select
+                  name={`doc_${d.key}_state`}
+                  defaultValue={state}
+                  className="h-9 w-full text-sm sm:w-48"
+                  aria-label={`${d.label} status`}
+                >
+                  <option value="verified">Verified</option>
+                  <option value="missing">Missing / not checked</option>
+                  {d.key === "licence" && <option value="na">Not required</option>}
+                </Select>
+                <Input
+                  type="date"
+                  name={`doc_${d.key}_expires`}
+                  defaultValue={v?.expiresOn ?? ""}
+                  className="h-9 w-full text-sm sm:w-40"
+                  aria-label={`${d.label} expiry`}
+                />
+                {errors[`doc_${d.key}`] && <p className="text-sm text-danger">{errors[`doc_${d.key}`]}</p>}
               </li>
             );
           })}
@@ -165,13 +210,13 @@ export function ProviderForm({ provider }) {
       <Card>
         <CardHeader title="Internal notes" />
         <div className="p-5">
-          <Textarea defaultValue={p.notes} placeholder="Anything other admins should know" />
+          <Textarea name="notes" defaultValue={p.notes} placeholder="Anything other admins should know" maxLength={5000} />
         </div>
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button type="submit" size="lg">
-          {provider ? "Save provider" : "Add provider"}
+        <Button type="submit" size="lg" disabled={pending}>
+          {pending ? "Saving…" : provider ? "Save provider" : "Add provider"}
         </Button>
       </div>
       {toastNode}

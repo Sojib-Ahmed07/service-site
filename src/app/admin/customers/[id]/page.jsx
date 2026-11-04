@@ -1,46 +1,53 @@
+// src/app/admin/customers/[id]/page.jsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { bookings, getCategory, getCustomer, getProvider } from "@/lib/data";
+import { formatISODate } from "@/lib/dates";
 import { formatDate, money } from "@/lib/utils";
 import { AdminHeader, ContactButtons, StatCard } from "@/components/admin/ui";
-import { Badge, Card, CardHeader, Table, Td, Th } from "@/components/ui/misc";
-import { Button, ButtonLink } from "@/components/ui/button";
-import { Field, Input, Textarea } from "@/components/ui/form";
+import { CustomerDetails } from "@/components/admin/customer-details";
+import { Card, CardHeader, Table, Td, Th } from "@/components/ui/misc";
+import { ButtonLink } from "@/components/ui/button";
 import { BookingBadge, PaymentBadge } from "@/components/ui/status";
+import { getAdminCustomer } from "@/server/queries/admin";
 
 export async function generateMetadata({ params }) {
   const { id } = await params;
-  return { title: getCustomer(id)?.name ?? "Customer" };
+  const c = await getAdminCustomer(id);
+  return { title: c?.name ?? "Customer" };
 }
 
 export default async function CustomerDetailPage({ params }) {
   const { id } = await params;
-  const c = getCustomer(id);
+  const c = await getAdminCustomer(id);
   if (!c) notFound();
-  const list = bookings.filter((b) => b.customerId === c.id);
+  const paidCount = c.bookings.filter((b) => b.payment === "paid").length;
 
   return (
     <>
       <AdminHeader
         back={{ href: "/admin/customers", label: "Customers" }}
         title={c.name}
-        description={`Customer since ${formatDate(c.joined, { month: "long", year: "numeric" })}, ${c.suburb}`}
+        description={`Customer since ${formatDate(c.joined, { month: "long", year: "numeric" })}${c.suburb ? `, ${c.suburb}` : ""}`}
         actions={
-          <>
-            <ContactButtons phone={c.phone} email={c.email} size="md" />
-            <ButtonLink href="/admin/bookings/new" size="sm" className="h-10">
-              Book for customer
-            </ButtonLink>
-          </>
+          !c.deleted && (
+            <>
+              <ContactButtons phone={c.phone} email={c.email} size="md" />
+              {c.status === "active" && (
+                <ButtonLink href={`/admin/bookings/new?customer=${encodeURIComponent(c.id)}`} size="sm" className="h-10">
+                  Book for customer
+                </ButtonLink>
+              )}
+            </>
+          )
         }
       />
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
-        <StatCard label="Bookings" value={c.bookings} />
-        <StatCard label="Lifetime spend" value={money(c.spent)} />
-        <StatCard label="Average booking" value={money(c.bookings ? c.spent / c.bookings : 0)} />
+        <StatCard label="Bookings" value={c.bookings.length} />
+        <StatCard label="Paid to date" value={money(c.spent)} />
+        <StatCard label="Average paid booking" value={money(paidCount ? c.spent / paidCount : 0)} />
       </div>
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-        <Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Card className="min-w-0">
           <CardHeader title="Booking history" />
           <Table>
             <thead>
@@ -55,16 +62,16 @@ export default async function CustomerDetailPage({ params }) {
               </tr>
             </thead>
             <tbody>
-              {list.map((b) => (
+              {c.bookings.map((b) => (
                 <tr key={b.id}>
                   <Td>
                     <Link href={`/admin/bookings/${b.id}`} className="font-medium text-ink-900">
                       {b.id}
                     </Link>
                   </Td>
-                  <Td>{getCategory(b.category).name}</Td>
-                  <Td>{formatDate(b.date)}</Td>
-                  <Td>{getProvider(b.providerId)?.name ?? "—"}</Td>
+                  <Td>{b.categoryName}</Td>
+                  <Td>{formatISODate(b.date, { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</Td>
+                  <Td>{b.providerName ?? "—"}</Td>
                   <Td>
                     <BookingBadge status={b.status} />
                   </Td>
@@ -74,41 +81,24 @@ export default async function CustomerDetailPage({ params }) {
                   <Td className="text-right">{money(b.total)}</Td>
                 </tr>
               ))}
+              {c.bookings.length === 0 && (
+                <tr>
+                  <Td colSpan={7} className="py-8 text-center text-muted">
+                    No bookings yet.
+                  </Td>
+                </tr>
+              )}
             </tbody>
           </Table>
         </Card>
         <div className="space-y-6">
-          <Card>
-            <CardHeader
-              title="Details"
-              action={c.status === "active" ? <Badge tone="success">Active</Badge> : <Badge tone="danger">Blocked</Badge>}
-            />
-            <form className="space-y-4 p-5">
-              <Field label="Name">
-                <Input defaultValue={c.name} />
-              </Field>
-              <Field label="Email">
-                <Input defaultValue={c.email} />
-              </Field>
-              <Field label="Mobile">
-                <Input defaultValue={c.phone} />
-              </Field>
-              <Field label="Internal notes">
-                <Textarea placeholder="e.g. Prefers morning bookings" />
-              </Field>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm">
-                  Save
-                </Button>
-                <Button type="button" size="sm" variant="ghost">
-                  Send password reset
-                </Button>
-                <Button type="button" size="sm" variant="ghost" className="text-danger">
-                  {c.status === "active" ? "Block customer" : "Unblock"}
-                </Button>
-              </div>
-            </form>
-          </Card>
+          {c.deleted ? (
+            <Card className="p-5 text-sm text-muted">
+              This customer deleted their account. Their bookings are kept for tax records.
+            </Card>
+          ) : (
+            <CustomerDetails customer={c} />
+          )}
         </div>
       </div>
     </>

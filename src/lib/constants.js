@@ -39,3 +39,26 @@ export const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const enquiryTypes = ["General", "Quote", "Booking", "Complaint", "Commercial"];
 
 export const experienceOptions = ["Less than 1", "1–3", "3–5", "5+"];
+
+/** Icon keys a service can use (see components/category-icon.jsx). */
+export const serviceIcons = [
+    "cleaning",
+    "lease",
+    "pest",
+    "carpet",
+    "garden",
+    "handyman",
+    "gutter",
+    "window",
+    "electrical",
+    "plumbing",
+    "removals",
+    "pressure",
+];
+
+/** Promo code customer restrictions. */
+export const couponRestrictions = {
+    anyone: "Anyone",
+    first_booking: "First booking only",
+    once_per_customer: "One use per customer",
+};

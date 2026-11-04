@@ -1,7 +1,7 @@
 // src/app/(site)/layout.jsx
 import { SiteHeader } from "@/components/site/header";
 import { SiteFooter } from "@/components/site/footer";
-import { getCategories } from "@/server/queries/catalog";
+import { getCategories, toCard } from "@/server/queries/catalog";
 import { getBanner } from "@/server/queries/content";
 import { getBusiness } from "@/server/queries/settings";
 import { getCurrentUser } from "@/server/session";
@@ -10,12 +10,13 @@ import { getCurrentUser } from "@/server/session";
 export const dynamic = "force-dynamic";
 
 export default async function SiteLayout({ children }) {
-  const [categories, top, business, user] = await Promise.all([
+  const [allCategories, top, business, user] = await Promise.all([
     getCategories(),
     getBanner("Top bar"),
     getBusiness(),
     getCurrentUser(),
   ]);
+  const categories = allCategories.map(toCard);
   return (
     <>
       <SiteHeader
