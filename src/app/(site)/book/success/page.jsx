@@ -6,12 +6,19 @@ import { ButtonLink } from "@/components/ui/button";
 export const metadata = { title: "Booking received" };
 
 export default async function BookingSuccessPage({ searchParams }) {
-  const { ref = "", service = "Your service", date = "", slot = "" } = await searchParams;
+  const { ref = "", service = "Your service", date = "", slot = "", account = "" } = await searchParams;
   const day = formatISODate(String(date));
   const when = day ? `${day}${slot ? `, ${slot}` : ""}` : "";
 
   const next = [
-    { icon: <Mail />, title: "Confirmation email", body: "A receipt and booking summary are on their way to your inbox." },
+    {
+      icon: <Mail />,
+      title: "Confirmation email",
+      body:
+        account === "1"
+          ? "Your booking summary is on its way, plus a link to set a password for your account."
+          : "Your booking summary is on its way to your inbox.",
+    },
     {
       icon: <CalendarCheck />,
       title: "We assign your pro",

@@ -3,17 +3,20 @@ import Link from "next/link";
 import { PageHero } from "@/components/site/sections";
 import { EmptyState } from "@/components/ui/misc";
 import { Photo } from "@/components/ui/photo";
-import { getPublishedPosts } from "@/server/queries/content";
+import { PageBody } from "@/components/site/blocks";
+import { getPage, getPublishedPosts, pageMetadata } from "@/server/queries/content";
 import { formatDate } from "@/lib/utils";
 
-export const metadata = { title: "Home care guides" };
+/** Header text is edited in Admin › Content › Pages; posts in Admin › Content › Blog. */
+export const generateMetadata = () => pageMetadata("/blog");
 
 export default async function BlogPage() {
-  const posts = await getPublishedPosts();
+  const [posts, page] = await Promise.all([getPublishedPosts(), getPage("/blog")]);
   const [lead, ...rest] = posts;
   return (
     <>
-      <PageHero title="Home care guides" body="Practical advice for looking after a home in southern Tasmania’s climate." />
+      <PageHero title={page.title} body={page.intro} />
+      <PageBody blocks={page.blocks} className="pt-14" />
       {!lead ? (
         <section className="container-x py-14">
           <EmptyState title="No guides yet" body="Check back soon." />

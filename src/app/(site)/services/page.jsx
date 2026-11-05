@@ -2,20 +2,20 @@
 import { ServiceBrowser } from "@/components/site/service-browser";
 import { PageHero } from "@/components/site/sections";
 import { getCategories, toCard } from "@/server/queries/catalog";
-import { getBusiness } from "@/server/queries/settings";
+import { getPage, pageMetadata } from "@/server/queries/content";
+import { PageBody } from "@/components/site/blocks";
 
-export const metadata = { title: "All services" };
+/** Header text is edited in Admin › Content › Pages. */
+export const generateMetadata = () => pageMetadata("/services");
 
 export default async function ServicesPage({ searchParams }) {
   const { q = "", group = "All", suburb = "" } = await searchParams;
-  const [categories, business] = await Promise.all([getCategories(), getBusiness()]);
+  const [categories, page] = await Promise.all([getCategories(), getPage("/services")]);
   return (
     <>
-      <PageHero
-        title={`Services across ${business.region}`}
-        body="Fixed-price packages, booked online in a couple of minutes. Pick a service to see what’s included."
-      />
+      <PageHero title={page.title} body={page.intro} />
       <ServiceBrowser categories={categories.map(toCard)} initialQuery={q} initialGroup={group} suburb={suburb} />
+      <PageBody blocks={page.blocks} className="pb-14" />
     </>
   );
 }

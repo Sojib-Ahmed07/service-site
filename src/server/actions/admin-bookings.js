@@ -14,7 +14,7 @@ import { lockBookings, nextReference } from "@/server/booking-rules";
 import { sendEmail } from "@/server/email";
 import { logError } from "@/server/errors";
 import { cents, priceBooking } from "@/server/pricing";
-import { getBookingRules, getBusiness } from "@/server/queries/settings";
+import { getBookingRules, getBusiness, getPaymentSettings } from "@/server/queries/settings";
 import { getAdmin } from "@/server/session";
 
 const denied = { ok: false, error: "Only admins can do that. Please log in again." };
@@ -318,6 +318,7 @@ export async function adminCancelBooking(reference, reason, refund) {
         });
         await sendEmail({
             to: b.customerEmail,
+            event: "cancellation",
             subject: `Booking ${b.reference} cancelled`,
             text: `Hi ${b.customerName.split(" ")[0]},\n\nYour booking ${b.reference} on ${formatISODate(b.serviceDate)} has been cancelled.${paid && refund === "full" ? " A full refund is on its way." : ""}\n\nSorry for any inconvenience.`,
         });
@@ -415,9 +416,10 @@ export async function emailInvoice(reference) {
     const admin = await getAdmin();
     if (!admin) return denied;
     try {
-        const [b, business] = await Promise.all([load(reference), getBusiness()]);
+        const [b, business, terms] = await Promise.all([load(reference), getBusiness(), getPaymentSettings()]);
         if (!b) return { ok: false, error: "Booking not found." };
         const total = Number(b.total);
+        const due = Number(terms.invoiceDays) > 0 ? `Payment due within ${terms.invoiceDays} days.` : "Payment due on receipt.";
         await sendEmail({
             to: b.customerEmail,
             subject: `Tax invoice for booking ${b.reference}`,
@@ -425,7 +427,7 @@ export async function emailInvoice(reference) {
                 `TAX INVOICE — ${business.name} (ABN ${business.abn})`,
                 `Booking ${b.reference}, ${formatISODate(b.serviceDate)}`,
                 `Total ${money2(total)} including GST of ${money2(total / 11)}`,
-                b.paymentStatus === "paid" ? "Status: paid, thank you." : "Payment due within 7 days.",
+                b.paymentStatus === "paid" ? "Status: paid, thank you." : due,
             ].join("\n"),
         });
         await db.transaction((tx) => log(tx, admin, b.id, "payment", "Tax invoice emailed to customer"));

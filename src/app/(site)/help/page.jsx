@@ -1,25 +1,33 @@
 // src/app/(site)/help/page.jsx
 import Link from "next/link";
 import { CalendarClock, CreditCard, LifeBuoy, Mail, Phone, ShieldCheck } from "lucide-react";
-import { getFaqs } from "@/server/queries/content";
-import { getBusiness } from "@/server/queries/settings";
+import { getFaqs, getPage, pageMetadata } from "@/server/queries/content";
+import { getBookingRules, getBusiness } from "@/server/queries/settings";
 import { PageHero } from "@/components/site/sections";
+import { PageBody } from "@/components/site/blocks";
 import { Accordion } from "@/components/ui/interactive";
 
-export const metadata = { title: "Help centre" };
-
-const topics = [
-  { icon: <CalendarClock />, title: "Change or cancel a booking", href: "/account/bookings" },
-  { icon: <CreditCard />, title: "Payments and refunds", href: "#payments" },
-  { icon: <ShieldCheck />, title: "Our 48-hour guarantee", href: "/guarantee" },
-  { icon: <LifeBuoy />, title: "Report a problem with a job", href: "/contact?type=complaint" },
-];
+/** Header text is edited in Admin › Content › Pages; questions in Admin › Content › FAQs. */
+export const generateMetadata = () => pageMetadata("/help");
 
 export default async function HelpPage() {
-  const [faqs, paymentFaqs, site] = await Promise.all([getFaqs("general"), getFaqs("payments"), getBusiness()]);
+  const [faqs, paymentFaqs, site, page, rules] = await Promise.all([
+    getFaqs("general"),
+    getFaqs("payments"),
+    getBusiness(),
+    getPage("/help"),
+    getBookingRules(),
+  ]);
+  const topics = [
+    { icon: <CalendarClock />, title: "Change or cancel a booking", href: "/account/bookings" },
+    { icon: <CreditCard />, title: "Payments and refunds", href: "#payments" },
+    { icon: <ShieldCheck />, title: `Our ${rules.guaranteeHours}-hour guarantee`, href: "/guarantee" },
+    { icon: <LifeBuoy />, title: "Report a problem with a job", href: "/contact?type=complaint" },
+  ];
   return (
     <>
-      <PageHero title="How can we help?" body={`Answers to common questions, or get in touch with our ${site.city} team.`} />
+      <PageHero title={page.title} body={page.intro} />
+      <PageBody blocks={page.blocks} className="pt-14" />
       <section className="container-x py-14">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {topics.map((t) => (

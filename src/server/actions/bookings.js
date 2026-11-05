@@ -34,7 +34,7 @@ import {
 import { sendEmail } from "@/server/email";
 import { logError } from "@/server/errors";
 import { priceBooking } from "@/server/pricing";
-import { getBookingRules, getBusiness } from "@/server/queries/settings";
+import { getBookingRules, getBusiness, getNotificationSettings } from "@/server/queries/settings";
 import { getCurrentUser } from "@/server/session";
 
 const CHANGEABLE = ["new", "assigned", "confirmed"];
@@ -254,6 +254,7 @@ export async function createBooking(input) {
     try {
         await sendEmail({
             to: v.email,
+            event: "confirmation",
             subject: `Booking ${result.reference} received — ${q.category.name}`,
             text: [
                 `Hi ${v.name.split(" ")[0]},`,
@@ -276,6 +277,26 @@ export async function createBooking(input) {
         }
     } catch (err) {
         logError("createBooking:email", err);
+    }
+    try {
+        // Alert the office (Settings › Notifications › "Email me about new bookings").
+        const notifications = await getNotificationSettings();
+        if (notifications.adminNewBooking && business.email) {
+            await sendEmail({
+                to: business.email,
+                subject: `New booking ${result.reference} — ${q.category.name}`,
+                text: [
+                    `${v.name} booked ${q.category.name} — ${q.package.name}`,
+                    when,
+                    addressLine,
+                    `Total ${money2(q.total)}`,
+                    "",
+                    `Assign a pro: ${business.url}/admin/bookings/${result.reference}`,
+                ].join("\n"),
+            });
+        }
+    } catch (err) {
+        logError("createBooking:adminEmail", err);
     }
 
     refreshPaths(result.reference);

@@ -1,13 +1,15 @@
 // src/server/actions/checkout.js
 "use server";
 
+import { logError } from "@/server/errors";
 import { and, count, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { bookings } from "@/db/schema";
 import { priceBooking } from "@/server/pricing";
 import { getBookingRules } from "@/server/queries/settings";
-import { addDaysISO, isISODate, todayISO, weekdayIndex } from "@/lib/dates";
+import { isISODate } from "@/lib/dates";
+import { checkDateAllowed } from "@/server/booking-rules";
 
 const quoteInput = z.object({
     categorySlug: z.string().min(1).max(80),
@@ -32,7 +34,7 @@ export async function applyCoupon(input) {
         if (!res.quote.coupon) return { ok: false, error: res.quote.couponError || "That code isn’t valid or has expired." };
         return { ok: true, coupon: res.quote.coupon, discount: res.quote.discount };
     } catch (err) {
-        console.error("[applyCoupon]", err);
+        logError("applyCoupon", err);
         return { ok: false, error: "We couldn’t check that code right now. Please try again." };
     }
 }
@@ -62,18 +64,7 @@ export async function getSlotAvailability(date) {
             slots: rules.timeSlots.map((slot) => ({ slot, full: max > 0 && (taken.get(slot) ?? 0) >= max })),
         };
     } catch (err) {
-        console.error("[getSlotAvailability]", err);
+        logError("getSlotAvailability", err);
         return { ok: false, error: "We couldn’t load times right now. Please try again." };
     }
-}
-
-/** Shared date rules (also used when a booking is created). */
-function checkDateAllowed(date, rules) {
-    const today = todayISO();
-    const firstDay = addDaysISO(today, Math.ceil((Number(rules.minNoticeHours) || 0) / 24));
-    const lastDay = addDaysISO(today, Number(rules.windowDays) || 14);
-    if (date < firstDay) return { ok: false, error: "That date is too soon. Please choose a later day." };
-    if (date > lastDay) return { ok: false, error: "That date is too far ahead." };
-    if (!rules.sundays && weekdayIndex(date) === 0) return { ok: false, error: "We don’t book on Sundays." };
-    return { ok: true };
 }

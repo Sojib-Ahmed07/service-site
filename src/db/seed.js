@@ -17,6 +17,7 @@ import * as d from "./seed-data.js";
 import { site } from "../lib/site.js";
 import { hobartToUTC } from "../lib/dates.js";
 import { databaseUrl } from "./url.js";
+import { defaultContentSettings, defaultPageRows } from "./content-defaults.js";
 
 loadEnvConfig(process.cwd()); // loads .env.local like Next.js does
 
@@ -325,15 +326,7 @@ async function main() {
         );
 
         /* CMS ------------------------------------------------------------------- */
-        await tx.insert(s.pages).values(
-            d.cmsPages.map((p) => ({
-                slug: p.slug,
-                title: p.title,
-                blocks: [],
-                status: p.status,
-                updatedAt: new Date(`${p.updated}T09:00:00+11:00`),
-            })),
-        );
+        await tx.insert(s.pages).values(defaultPageRows());
 
         await tx.insert(s.posts).values(
             d.blogPosts.map((p) => ({
@@ -408,7 +401,8 @@ async function main() {
             { key: "business", value: { ...business, gst: "registered" } },
             { key: "booking", value: { ...d.bookingRules, timeSlots: d.timeSlots } },
             { key: "images", value: d.images },
-            { key: "offers", value: { seasonal: d.seasonalServices } },
+            { key: "offers", value: { seasonal: d.seasonalServices, seasonalTitle: "In season now", seasonalText: d.seasonalText } },
+            ...Object.entries(defaultContentSettings).map(([key, value]) => ({ key, value })),
         ]);
     });
 

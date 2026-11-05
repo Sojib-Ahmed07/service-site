@@ -5,8 +5,17 @@
  * password-reset link from there.
  */
 import "server-only";
+import { getNotificationSettings } from "@/server/queries/settings";
 
-export async function sendEmail({ to, subject, text }) {
+/**
+ * `event` ("confirmation" | "cancellation") marks an automatic email that can be
+ * switched off in Admin › Settings › Notifications. Emails without one always send.
+ */
+export async function sendEmail({ to, subject, text, event }) {
+    if (event) {
+        const settings = await getNotificationSettings();
+        if (settings.emails?.[event] === false) return { ok: true, skipped: true };
+    }
     const line = "-".repeat(60);
     console.log(`\n${line}\n[email] To: ${to}\n[email] Subject: ${subject}\n\n${text}\n${line}\n`);
     if (process.env.NODE_ENV === "production") {

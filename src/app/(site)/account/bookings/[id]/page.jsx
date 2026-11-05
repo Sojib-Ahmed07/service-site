@@ -7,7 +7,9 @@ import { formatISODate } from "@/lib/dates";
 import { cn, money2 } from "@/lib/utils";
 import { requireUser } from "@/server/session";
 import { getMyBooking } from "@/server/queries/account";
-import { getBookingRules } from "@/server/queries/settings";
+import { getBookingRules, getBusiness } from "@/server/queries/settings";
+import { freeChangeHours, hoursUntilSlot } from "@/server/booking-rules";
+import { addDaysISO, todayISO } from "@/lib/dates";
 import { CategoryIcon } from "@/components/category-icon";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { BookingBadge, PaymentBadge } from "@/components/ui/status";
@@ -18,14 +20,21 @@ export const metadata = { title: "Booking" };
 export default async function MyBookingDetailPage({ params }) {
   const { id } = await params;
   const user = await requireUser(`/account/bookings/${id}`);
-  const [b, rules] = await Promise.all([getMyBooking(user.id, id), getBookingRules()]);
+  const [b, rules, business] = await Promise.all([getMyBooking(user.id, id), getBookingRules(), getBusiness()]);
   if (!b) notFound();
   const c = { name: b.categoryName, icon: b.icon };
   const p = { name: b.packageName, price: b.packagePrice };
   const extras = b.extras;
   const currentIndex = bookingSteps.indexOf(b.status);
   const cancelled = b.status === "cancelled";
-  const canChange = ["new", "assigned", "confirmed"].includes(b.status);
+  const freeHours = freeChangeHours(rules);
+  const changeable = ["new", "assigned", "confirmed"].includes(b.status);
+  const canChange = changeable && hoursUntilSlot(b.date, b.slot) >= freeHours;
+  const changeLocked =
+    changeable && !canChange
+      ? `Need to change this booking? It’s less than ${freeHours} hours away, so please call us on ${business.phone}.`
+      : "";
+  const today = todayISO();
 
   return (
     <div className="space-y-6">
@@ -45,7 +54,20 @@ export default async function MyBookingDetailPage({ params }) {
             </div>
           </div>
         </div>
-        <BookingActions canChange={canChange} completed={b.status === "completed"} timeSlots={rules.timeSlots} />
+        <BookingActions
+          bookingRef={b.id}
+          canChange={canChange}
+          changeLocked={changeLocked}
+          completed={b.status === "completed"}
+          reviewed={b.reviewed}
+          timeSlots={rules.timeSlots}
+          minDate={addDaysISO(today, Math.ceil((Number(rules.minNoticeHours) || 0) / 24))}
+          maxDate={addDaysISO(today, Number(rules.windowDays) || 14)}
+          sundays={Boolean(rules.sundays)}
+          currentDate={b.date}
+          currentSlot={b.slot}
+          freeHours={freeHours}
+        />
       </div>
 
       {/* Progress timeline */}

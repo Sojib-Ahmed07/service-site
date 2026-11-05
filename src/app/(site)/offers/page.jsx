@@ -4,19 +4,29 @@ import { PageHero, ServiceCard } from "@/components/site/sections";
 import { CtaBand } from "@/components/site/server-sections";
 import { getCategories, getCategoriesBySlugs } from "@/server/queries/catalog";
 import { couponRestrictions } from "@/lib/constants";
-import { getLiveCoupons } from "@/server/queries/content";
-import { getOfferSettings } from "@/server/queries/settings";
+import { PageBody } from "@/components/site/blocks";
+import { getLiveCoupons, getPage, pageMetadata } from "@/server/queries/content";
+import { getContentVars, getOfferSettings } from "@/server/queries/settings";
+import { fillVars } from "@/lib/cms";
 import { formatDate, money } from "@/lib/utils";
 
-export const metadata = { title: "Offers" };
+/** Edited in Admin › Content › Pages › Current offers (codes come from Admin › Promo codes). */
+export const generateMetadata = () => pageMetadata("/offers");
 
 export default async function OffersPage() {
-  const [live, settings, categories] = await Promise.all([getLiveCoupons(), getOfferSettings(), getCategories()]);
+  const [live, settings, categories, page, vars] = await Promise.all([
+    getLiveCoupons(),
+    getOfferSettings(),
+    getCategories(),
+    getPage("/offers"),
+    getContentVars(),
+  ]);
   const onlyFor = (c) => (c.categoryIds?.length ? categories.find((x) => x.id === c.categoryIds[0])?.name : null);
   const seasonal = await getCategoriesBySlugs(settings.seasonal);
   return (
     <>
-      <PageHero title="Current offers" body="Enter the code at checkout. One code per booking." />
+      <PageHero title={page.title} body={page.intro} />
+      <PageBody blocks={page.blocks} className="pt-14" />
       <section className="container-x py-14">
         {live.length === 0 && <p className="text-muted">There are no offers running right now. Check back soon.</p>}
         <div className="grid gap-4 md:grid-cols-3">
@@ -53,8 +63,8 @@ export default async function OffersPage() {
       </section>
       {seasonal.length > 0 && (
         <section className="container-x pb-6">
-          <h2 className="text-2xl font-semibold">In season now</h2>
-          <p className="mt-1 text-muted">Spring in Hobart means spiders, blocked gutters and mossy paths.</p>
+          <h2 className="text-2xl font-semibold">{fillVars(settings.seasonalTitle, vars) || "In season now"}</h2>
+          {settings.seasonalText && <p className="mt-1 text-muted">{fillVars(settings.seasonalText, vars)}</p>}
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {seasonal.map((c) => (
               <ServiceCard key={c.slug} c={c} />

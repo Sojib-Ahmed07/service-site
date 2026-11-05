@@ -1,3 +1,4 @@
+// src/components/site/package-picker.jsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -9,7 +10,7 @@ import { ButtonLink } from "@/components/ui/button";
  * Package + add-on selection on a service page, with a sticky price summary.
  * The selection is carried into /book/[slug] through the query string.
  */
-export function PackagePicker({ category, packages, addOns, suburb, children }) {
+export function PackagePicker({ category, packages, addOns, suburb, freeChangeHours = 24, children }) {
   const [pkgId, setPkgId] = useState((packages.find((p) => p.popular) ?? packages[0])?.id);
   const [extras, setExtras] = useState([]);
 
@@ -133,7 +134,11 @@ export function PackagePicker({ category, packages, addOns, suburb, children }) 
           <ButtonLink href={href} size="lg" className="mt-5 w-full">
             Choose a time
           </ButtonLink>
-          <p className="mt-3 text-center text-xs text-muted">Free changes up to 24 hours before your booking.</p>
+          {freeChangeHours > 0 && (
+            <p className="mt-3 text-center text-xs text-muted">
+              Free changes up to {freeChangeHours} hours before your booking.
+            </p>
+          )}
         </div>
       </aside>
 

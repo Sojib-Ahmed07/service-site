@@ -4,9 +4,10 @@ import { notFound } from "next/navigation";
 import { BadgeCheck, Check, ChevronRight, Clock, ShieldCheck, Star, Wallet } from "lucide-react";
 import { Photo } from "@/components/ui/photo";
 import { getAddOnsFor, getCategories, getCategory, getPackagesFor, toCard } from "@/server/queries/catalog";
-import { getBusiness } from "@/server/queries/settings";
+import { getBanner } from "@/server/queries/content";
+import { getBookingRules, getBusiness } from "@/server/queries/settings";
 import { PackagePicker } from "@/components/site/package-picker";
-import { ServiceCard } from "@/components/site/sections";
+import { PromoBanner, ServiceCard } from "@/components/site/sections";
 import { CtaBand, ReviewWall } from "@/components/site/server-sections";
 import { Accordion } from "@/components/ui/interactive";
 
@@ -26,12 +27,20 @@ export default async function ServiceDetailPage({ params, searchParams }) {
   const c = await getCategory(slug);
   if (!c) notFound();
 
-  const [categories, packages, addOns] = await Promise.all([getCategories(), getPackagesFor(c), getAddOnsFor(c)]);
+  const [categories, packages, addOns, rules, banner] = await Promise.all([
+    getCategories(),
+    getPackagesFor(c),
+    getAddOnsFor(c),
+    getBookingRules(),
+    getBanner("Service pages"),
+  ]);
+  const noticeDays = Math.ceil((Number(rules.minNoticeHours) || 0) / 24);
   const related = categories.filter((x) => x.group === c.group && x.slug !== c.slug).slice(0, 3);
 
   return (
     <>
       <section className="container-x pt-6 sm:pt-8">
+        {banner && <PromoBanner banner={banner} className="mb-5" />}
         <nav className="flex items-center gap-1 text-sm text-muted" aria-label="Breadcrumb">
           <Link href="/services" className="hover:text-ink">
             Services
@@ -55,8 +64,11 @@ export default async function ServiceDetailPage({ params, searchParams }) {
             <ul className="mt-6 grid gap-2.5 text-[15px] sm:grid-cols-2">
               {[
                 [<BadgeCheck key="a" />, "Vetted and insured pros"],
-                [<ShieldCheck key="b" />, "48-hour make-it-right guarantee"],
-                [<Clock key="c" />, "Next-day slots available"],
+                [<ShieldCheck key="b" />, `${rules.guaranteeHours}-hour make-it-right guarantee`],
+                [
+                  <Clock key="c" />,
+                  noticeDays === 0 ? "Same-day slots available" : noticeDays === 1 ? "Next-day slots available" : `Book from ${noticeDays} days ahead`,
+                ],
                 [<Wallet key="d" />, "Fixed price, GST included"],
               ].map(([icon, label]) => (
                 <li key={label} className="flex items-center gap-2.5 text-ink-700 [&_svg]:size-[18px] [&_svg]:text-ink-900">
@@ -69,7 +81,13 @@ export default async function ServiceDetailPage({ params, searchParams }) {
         </div>
       </section>
 
-      <PackagePicker category={toCard(c)} packages={packages} addOns={addOns} suburb={suburb}>
+      <PackagePicker
+        category={toCard(c)}
+        packages={packages}
+        addOns={addOns}
+        suburb={suburb}
+        freeChangeHours={Number(rules.freeCancelHours) || 0}
+      >
         <section>
           <h2 className="text-2xl font-semibold">What’s included</h2>
           <ul className="mt-5 grid gap-3 sm:grid-cols-2">

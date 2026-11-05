@@ -5,7 +5,7 @@
  * of ReviewWall, TrustStrip and CtaBand live in ./server-sections.jsx.
  */
 import Link from "next/link";
-import { ArrowUpRight, BadgeCheck, Headphones, ShieldCheck, Star, Wallet } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Headphones, ShieldCheck, Star, Tag, Wallet } from "lucide-react";
 import { cn, money } from "@/lib/utils";
 import { ButtonLink } from "@/components/ui/button";
 import { Photo } from "@/components/ui/photo";
@@ -83,11 +83,11 @@ export function ServiceTile({ c }) {
 }
 
 /* Trust strip --------------------------------------------------------------- */
-export function TrustStripView({ className, inverse, business }) {
+export function TrustStripView({ className, inverse, business, guaranteeHours = 48 }) {
   const items = [
     { icon: <BadgeCheck />, title: "Vetted local pros", body: "ABN, insurance, police check and licence checked." },
     { icon: <Wallet />, title: "Fixed upfront prices", body: "GST included. No surprise call-out fees." },
-    { icon: <ShieldCheck />, title: "48-hour guarantee", body: "Not right? We send someone back, free." },
+    { icon: <ShieldCheck />, title: `${guaranteeHours}-hour guarantee`, body: "Not right? We send someone back, free." },
     { icon: <Headphones />, title: "One local team", body: `Real people in ${business.city}, ${business.hours}.` },
   ];
   return (
@@ -104,22 +104,13 @@ export function TrustStripView({ className, inverse, business }) {
 }
 
 /* How it works — a real sequence, so it is numbered ------------------------- */
-export function HowItWorks() {
-  const steps = [
-    {
-      title: "Choose a service",
-      body: "Pick a package and see the exact price before you book. Add extras like an oven clean in one tap.",
-    },
-    { title: "Pick a time", body: "Choose a two-hour arrival window that suits you. Leave access notes if you won’t be home." },
-    {
-      title: "We send a vetted pro",
-      body: "We match a checked, insured local professional to your job and keep you updated throughout.",
-    },
-  ];
+/** Steps come from Admin › Content › Homepage (2–4 steps). */
+export function HowItWorks({ steps = [] }) {
+  const cols = { 2: "md:grid-cols-2", 3: "md:grid-cols-3", 4: "md:grid-cols-2 lg:grid-cols-4" }[steps.length] ?? "md:grid-cols-3";
   return (
-    <ol className="grid gap-10 md:grid-cols-3 md:gap-8">
+    <ol className={cn("grid gap-10 md:gap-8", cols)}>
       {steps.map((s, i) => (
-        <li key={s.title} className="relative">
+        <li key={i} className="relative">
           <div className="flex items-center gap-4">
             <span className="tabular grid size-10 shrink-0 place-items-center rounded-full bg-ink-900 text-[15px] font-semibold text-white">
               {i + 1}
@@ -205,6 +196,25 @@ export function PageHero({ title, body, children }) {
         {children}
       </div>
     </section>
+  );
+}
+
+/** A banner from Admin › Content › Banners ({ text, link }). */
+export function PromoBanner({ banner, className }) {
+  const external = /^https?:\/\//.test(banner.link);
+  return (
+    <Link
+      href={banner.link}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      className={cn(
+        "inline-flex max-w-full items-center gap-2 rounded-full bg-brand-50 px-3.5 py-1.5 text-sm font-medium text-brand-800 ring-1 ring-brand-100 hover:bg-brand-100",
+        className,
+      )}
+    >
+      <Tag className="size-3.5 shrink-0" />
+      <span className="truncate">{banner.text}</span>
+      <ArrowUpRight className="size-3.5 shrink-0" />
+    </Link>
   );
 }
 

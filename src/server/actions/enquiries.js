@@ -1,6 +1,7 @@
 // src/server/actions/enquiries.js
 "use server";
 
+import { logError } from "@/server/errors";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/db";
@@ -91,7 +92,7 @@ export async function submitEnquiry(formData) {
         revalidatePath("/admin/inbox");
         return { ok: true };
     } catch (err) {
-        console.error("[submitEnquiry]", err);
+        logError("submitEnquiry", err);
         return { ok: false, error: "We couldn’t send your message. Please try again or call us." };
     }
 }
@@ -144,7 +145,7 @@ export async function submitPartnerApplication(formData) {
         revalidatePath("/admin/inbox");
         return { ok: true };
     } catch (err) {
-        console.error("[submitPartnerApplication]", err);
+        logError("submitPartnerApplication", err);
         return { ok: false, error: "We couldn’t send your application. Please try again or call us." };
     }
 }

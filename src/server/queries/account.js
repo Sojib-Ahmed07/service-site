@@ -8,7 +8,7 @@ import "server-only";
 import { cache } from "react";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { addOns, addresses, bookingAddOns, bookingEvents, bookings, categories, packages, suburbs } from "@/db/schema";
+import { addOns, addresses, bookingAddOns, bookingEvents, bookings, categories, packages, reviews, suburbs } from "@/db/schema";
 
 const ACTIVE = ["new", "assigned", "confirmed", "in_progress"];
 
@@ -80,7 +80,7 @@ export const getMyBooking = cache(async (userId, reference) => {
         .limit(1);
     if (!row) return null;
 
-    const [extras, messages] = await Promise.all([
+    const [extras, messages, review] = await Promise.all([
         db
             .select({ id: addOns.id, name: addOns.name, price: bookingAddOns.price })
             .from(bookingAddOns)
@@ -92,11 +92,13 @@ export const getMyBooking = cache(async (userId, reference) => {
             .from(bookingEvents)
             .where(and(eq(bookingEvents.bookingId, row.dbId), inArray(bookingEvents.type, ["message_customer", "message_team"])))
             .orderBy(asc(bookingEvents.createdAt)),
+        db.select({ id: reviews.id }).from(reviews).where(eq(reviews.bookingId, row.dbId)).limit(1),
     ]);
 
     const b = toBooking(row);
     return {
         ...b,
+        reviewed: review.length > 0,
         extras: extras.map((e) => ({ id: String(e.id), name: e.name, price: Number(e.price) })),
         messages: messages.map((m) => ({
             from: m.type === "message_team" ? "team" : "customer",

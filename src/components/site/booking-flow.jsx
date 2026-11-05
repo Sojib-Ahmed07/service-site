@@ -8,6 +8,7 @@ import { ArrowLeft, Banknote, Check, CreditCard, Lock, MapPin, Tag } from "lucid
 import { addDaysISO, formatISODate, todayISO, weekdayIndex } from "@/lib/dates";
 import { cn, money, money2 } from "@/lib/utils";
 import { applyCoupon, getSlotAvailability } from "@/server/actions/checkout";
+import { createBooking } from "@/server/actions/bookings";
 import { CategoryIcon } from "@/components/category-icon";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -16,24 +17,44 @@ const steps = ["Address", "Date & time", "Your details", "Payment"];
 
 /**
  * Four-step checkout. Services, prices, suburbs, time slots and booking rules come
- * from the database. Promo codes and slot availability are checked on the server.
- * TODO (next batch): "Confirm booking" → createBooking Server Action.
+ * from the database. Promo codes, slot availability and the final booking are all
+ * checked again on the server (createBooking). `user` and `savedAddresses` are set
+ * when the customer is signed in.
  */
-export function BookingFlow({ category, packages, addOns, suburbs, rules, initialPackageId, initialAddOns, initialSuburb }) {
+export function BookingFlow({
+  category,
+  packages,
+  addOns,
+  suburbs,
+  rules,
+  initialPackageId,
+  initialAddOns,
+  initialSuburb,
+  user = null,
+  savedAddresses = [],
+  loginHref = "/login",
+}) {
   const router = useRouter();
   const timeSlots = rules.timeSlots ?? [];
+  // Start from the default saved address, unless the visitor picked a different suburb.
+  const defaultAddress =
+    savedAddresses.find((a) => a.isDefault && (!initialSuburb || a.suburb === initialSuburb)) ??
+    (initialSuburb ? savedAddresses.find((a) => a.suburb === initialSuburb) : null);
+  const [addressId, setAddressId] = useState(defaultAddress ? String(defaultAddress.id) : "");
+  const [submitting, startSubmit] = useTransition();
+  const [submitError, setSubmitError] = useState("");
   const [step, setStep] = useState(0);
   const [pkgId, setPkgId] = useState(initialPackageId);
   const [extras, setExtras] = useState(initialAddOns);
   const [form, setForm] = useState({
-    suburb: suburbs.some((s) => s.name === initialSuburb) ? initialSuburb : "",
-    street: "",
-    access: "",
+    suburb: defaultAddress?.suburb ?? (suburbs.some((s) => s.name === initialSuburb) ? initialSuburb : ""),
+    street: defaultAddress ? [defaultAddress.line1, defaultAddress.line2].filter(Boolean).join(", ") : "",
+    access: defaultAddress?.notes ?? "",
     date: "",
     slot: "",
-    name: "",
-    email: "",
-    phone: "",
+    name: user?.name ?? "",
+    email: user?.email ?? "",
+    phone: user?.phone ?? "",
     createAccount: true,
     payment: "later",
     coupon: "",
@@ -120,11 +141,53 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
     });
   };
 
-  const confirm = () => {
-    // TODO: call a Server Action → insert booking, take payment, send confirmation email.
-    router.push(
-      `/book/success?ref=HD-24818&service=${encodeURIComponent(category.name)}&date=${form.date}&slot=${encodeURIComponent(form.slot)}`,
+  const chooseAddress = (id) => {
+    setAddressId(id);
+    const a = savedAddresses.find((x) => String(x.id) === id);
+    setForm((f) =>
+      a
+        ? { ...f, suburb: a.suburb, street: [a.line1, a.line2].filter(Boolean).join(", "), access: a.notes ?? "" }
+        : { ...f, street: "", access: "" },
     );
+  };
+
+  const confirm = () => {
+    if (submitting) return;
+    setSubmitError("");
+    startSubmit(async () => {
+      try {
+        const res = await createBooking({
+          categorySlug: category.slug,
+          packageId: pkgId,
+          addOnIds: extras,
+          suburb: form.suburb,
+          street: form.street,
+          access: form.access,
+          date: form.date,
+          slot: form.slot,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          createAccount: Boolean(form.createAccount),
+          payment: form.payment,
+          couponCode: couponValid ? couponApplied.code : "",
+          agree: form.agree,
+        });
+        if (!res.ok) {
+          setSubmitError(res.error);
+          if (typeof res.step === "number" && res.step < 3) {
+            setStep(res.step);
+            if (res.step === 1) setForm((f) => ({ ...f, slot: "", date: "" }));
+          }
+          return;
+        }
+        const qs = new URLSearchParams({ ref: res.reference, service: res.service, date: res.date, slot: res.slot });
+        if (res.accountEmailSent) qs.set("account", "1");
+        router.push(`/book/success?${qs.toString()}`);
+      } catch {
+        setSubmitError("We couldn’t place your booking. Please check your connection and try again.");
+      }
+    });
   };
 
   return (
@@ -161,12 +224,31 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
         <div className="mt-8 rounded-[var(--radius-card)] border border-line bg-surface p-5 sm:p-8">
           {step === 0 && (
             <div className="grid gap-5 sm:grid-cols-2">
+              {savedAddresses.length > 0 && (
+                <Field label="Saved addresses" htmlFor="saved" className="sm:col-span-2">
+                  <Select id="saved" value={addressId} onChange={(e) => chooseAddress(e.target.value)}>
+                    {savedAddresses.map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {a.label}: {a.line}
+                      </option>
+                    ))}
+                    <option value="">Use a different address</option>
+                  </Select>
+                </Field>
+              )}
               <Field
                 label="Suburb"
                 htmlFor="suburb"
                 hint={travel ? `A ${money(travel)} travel fee applies to ${form.suburb}.` : "Greater Hobart only."}
               >
-                <Select id="suburb" value={form.suburb} onChange={(e) => set("suburb", e.target.value)}>
+                <Select
+                  id="suburb"
+                  value={form.suburb}
+                  onChange={(e) => {
+                    set("suburb", e.target.value);
+                    setAddressId("");
+                  }}
+                >
                   <option value="">Select your suburb</option>
                   {suburbs.map((s) => (
                     <option key={s.id} value={s.name}>
@@ -179,9 +261,13 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                 <Input
                   id="street"
                   value={form.street}
-                  onChange={(e) => set("street", e.target.value)}
+                  onChange={(e) => {
+                    set("street", e.target.value);
+                    setAddressId("");
+                  }}
                   placeholder="e.g. 14 Pirie Street"
                   autoComplete="street-address"
+                  maxLength={200}
                 />
               </Field>
               <Field
@@ -195,6 +281,7 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                   value={form.access}
                   onChange={(e) => set("access", e.target.value)}
                   placeholder="e.g. Key in lockbox by the side gate, code 1234. Friendly dog."
+                  maxLength={1000}
                 />
               </Field>
             </div>
@@ -262,15 +349,28 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
 
           {step === 2 && (
             <div className="grid gap-5 sm:grid-cols-2">
-              <p className="text-sm text-muted sm:col-span-2">
-                Already have an account?{" "}
-                <Link href="/login" className="font-medium text-ink-900 underline underline-offset-4">
-                  Log in
-                </Link>{" "}
-                to use your saved details.
-              </p>
+              {user ? (
+                <p className="text-sm text-muted sm:col-span-2">
+                  Booking as <span className="font-medium text-ink">{user.name}</span> ({user.email}).
+                </p>
+              ) : (
+                <p className="text-sm text-muted sm:col-span-2">
+                  Already have an account?{" "}
+                  <Link href={loginHref} className="font-medium text-ink-900 underline underline-offset-4">
+                    Log in
+                  </Link>{" "}
+                  to use your saved details.
+                </p>
+              )}
               <Field label="Full name" htmlFor="name" className="sm:col-span-2">
-                <Input id="name" value={form.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" />
+                <Input
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  autoComplete="name"
+                  maxLength={120}
+                  disabled={Boolean(user)}
+                />
               </Field>
               <Field label="Email" htmlFor="email" hint="We’ll send your confirmation here.">
                 <Input
@@ -279,6 +379,8 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                   value={form.email}
                   onChange={(e) => set("email", e.target.value)}
                   autoComplete="email"
+                  maxLength={255}
+                  disabled={Boolean(user)}
                 />
               </Field>
               <Field label="Mobile" htmlFor="phone" hint="For day-of updates by SMS.">
@@ -289,14 +391,17 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                   onChange={(e) => set("phone", e.target.value)}
                   placeholder="04xx xxx xxx"
                   autoComplete="tel"
+                  maxLength={32}
                 />
               </Field>
-              <Checkbox
-                className="sm:col-span-2"
-                checked={form.createAccount}
-                onChange={(e) => set("createAccount", e.target.checked)}
-                label="Create an account so I can manage and rebook this job"
-              />
+              {!user && (
+                <Checkbox
+                  className="sm:col-span-2"
+                  checked={form.createAccount}
+                  onChange={(e) => set("createAccount", e.target.checked)}
+                  label="Create an account so I can manage and rebook this job (we’ll email you a link to set a password)"
+                />
+              )}
             </div>
           )}
 
@@ -308,7 +413,8 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                   onClick={() => set("payment", "card")}
                   icon={<CreditCard />}
                   title="Pay now by card"
-                  body="Visa, Mastercard, Amex, Apple Pay"
+                  body="Coming soon"
+                  disabled
                 />
                 <PayOption
                   active={form.payment === "later"}
@@ -319,25 +425,10 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
                 />
               </div>
 
-              {form.payment === "card" && (
-                /* PAYMENT PLACEHOLDER — swap this block for Stripe <PaymentElement /> or Square Web Payments SDK */
-                <div className="rounded-2xl border border-dashed border-line-strong bg-paper p-5">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Card number" className="sm:col-span-2">
-                      <Input placeholder="1234 1234 1234 1234" disabled />
-                    </Field>
-                    <Field label="Expiry">
-                      <Input placeholder="MM / YY" disabled />
-                    </Field>
-                    <Field label="CVC">
-                      <Input placeholder="123" disabled />
-                    </Field>
-                  </div>
-                  <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-                    <Lock className="size-3.5" /> Card payments are being connected. Choose “Pay after the job” for now.
-                  </p>
-                </div>
-              )}
+              {/* PAYMENT PLACEHOLDER — card payments are added in the payments batch (provider not chosen yet). */}
+              <p className="flex items-center gap-2 text-xs text-muted">
+                <Lock className="size-3.5" /> Nothing is charged now. We email a tax invoice once the job is done.
+              </p>
 
               <div>
                 <Field label="Promo code" htmlFor="coupon" error={couponError}>
@@ -397,19 +488,31 @@ export function BookingFlow({ category, packages, addOns, suburbs, rules, initia
           )}
 
           <div className="mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
-            <Button variant="ghost" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
+            <Button variant="ghost" onClick={() => setStep((s) => s - 1)} disabled={step === 0 || submitting}>
               Back
             </Button>
             {step < steps.length - 1 ? (
-              <Button size="lg" onClick={() => setStep((s) => s + 1)} disabled={!canContinue}>
+              <Button
+                size="lg"
+                onClick={() => {
+                  setSubmitError("");
+                  setStep((s) => s + 1);
+                }}
+                disabled={!canContinue}
+              >
                 Continue
               </Button>
             ) : (
-              <Button size="lg" onClick={confirm} disabled={!canContinue}>
-                Confirm booking ({money2(total)})
+              <Button size="lg" onClick={confirm} disabled={!canContinue || submitting}>
+                {submitting ? "Booking…" : `Confirm booking (${money2(total)})`}
               </Button>
             )}
           </div>
+          {submitError && (
+            <p role="alert" className="mt-4 rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger">
+              {submitError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -500,15 +603,17 @@ function Row({ label, value, accent }) {
   );
 }
 
-function PayOption({ active, onClick, icon, title, body }) {
+function PayOption({ active, onClick, icon, title, body, disabled }) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={active}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex items-start gap-3 rounded-2xl border-2 p-4 text-left transition-colors [&>svg]:size-5",
+        "flex items-start gap-3 rounded-2xl border-2 p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-5",
         active ? "border-ink-900 bg-ink-50/50" : "border-line hover:border-line-strong",
       )}
     >

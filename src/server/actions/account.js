@@ -10,6 +10,7 @@ import { db } from "@/db";
 import { accounts, addresses, bookings, sessions, suburbs, users, zones } from "@/db/schema";
 import { auth } from "@/server/auth";
 import { getCurrentUser } from "@/server/session";
+import { logError } from "@/server/errors";
 
 const MAX_ADDRESSES = 10;
 
@@ -56,7 +57,7 @@ export async function updateProfile(formData) {
         revalidatePath("/account", "layout");
         return { ok: true, message: "Details saved." };
     } catch (err) {
-        console.error("[updateProfile]", err);
+        logError("updateProfile", err);
         return { ok: false, error: "We couldn’t save your details. Please try again." };
     }
 }
@@ -79,7 +80,7 @@ export async function updateNotificationPref(key, value) {
             .where(eq(users.id, user.id));
         return { ok: true };
     } catch (err) {
-        console.error("[updateNotificationPref]", err);
+        logError("updateNotificationPref", err);
         return { ok: false, error: "We couldn’t save that setting. Please try again." };
     }
 }
@@ -122,7 +123,7 @@ export async function changePassword(formData) {
     } catch (err) {
         const code = err?.body?.code ?? "";
         if (code === "INVALID_PASSWORD") return { ok: false, fieldErrors: { currentPassword: "That isn’t your current password." } };
-        console.error("[changePassword]", err);
+        logError("changePassword", err);
         return { ok: false, error: "We couldn’t change your password. Please try again." };
     }
 }
@@ -199,7 +200,7 @@ export async function saveAddress(formData) {
     } catch (err) {
         if (err.message === "NOT_FOUND") return { ok: false, error: "That address no longer exists." };
         if (err.message === "TOO_MANY") return { ok: false, error: `You can save up to ${MAX_ADDRESSES} addresses.` };
-        console.error("[saveAddress]", err);
+        logError("saveAddress", err);
         return { ok: false, error: "We couldn’t save that address. Please try again." };
     }
 }
@@ -233,7 +234,7 @@ export async function deleteAddress(id) {
         revalidatePath("/account/addresses");
         return { ok: true };
     } catch (err) {
-        console.error("[deleteAddress]", err);
+        logError("deleteAddress", err);
         return { ok: false, error: "We couldn’t remove that address. Please try again." };
     }
 }
@@ -262,7 +263,7 @@ export async function makeDefaultAddress(id) {
         return { ok: true };
     } catch (err) {
         if (err.message === "NOT_FOUND") return { ok: false, error: "That address no longer exists." };
-        console.error("[makeDefaultAddress]", err);
+        logError("makeDefaultAddress", err);
         return { ok: false, error: "We couldn’t update that address. Please try again." };
     }
 }
@@ -323,7 +324,7 @@ export async function deleteAccount(formData) {
                 .where(and(eq(users.id, user.id), ne(users.role, "admin")));
         });
     } catch (err) {
-        console.error("[deleteAccount]", err);
+        logError("deleteAccount", err);
         return { ok: false, error: "We couldn’t delete your account. Please contact us." };
     }
     redirect("/?account=deleted");

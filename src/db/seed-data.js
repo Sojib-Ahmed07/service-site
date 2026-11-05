@@ -1,7 +1,7 @@
 // src/db/seed-data.js
 /**
  * Starter data loaded into the database by `npm run db:seed`.
- * This is the old mock data from src/lib/data.js. After seeding, the site reads
+ * This was the original mock data. After seeding, the site reads
  * everything from the database and you edit it from the admin panel.
  *
  * Reviews below are SAMPLE text. Delete them (Admin › Reviews) before launch:
@@ -1266,15 +1266,6 @@ export const blogPosts = [
         status: "draft",
     },
 ];
-export const cmsPages = [
-    { id: "pg-home", title: "Home", slug: "/", status: "published", updated: "2026-11-01", sections: 7 },
-    { id: "pg-about", title: "About us", slug: "/about", status: "published", updated: "2026-09-12", sections: 4 },
-    { id: "pg-how", title: "How it works", slug: "/how-it-works", status: "published", updated: "2026-08-30", sections: 3 },
-    { id: "pg-guarantee", title: "Our guarantee", slug: "/guarantee", status: "published", updated: "2026-08-30", sections: 2 },
-    { id: "pg-terms", title: "Terms of service", slug: "/terms", status: "published", updated: "2026-07-01", sections: 1 },
-    { id: "pg-privacy", title: "Privacy policy", slug: "/privacy", status: "published", updated: "2026-07-01", sections: 1 },
-    { id: "pg-summer", title: "Summer offers", slug: "/offers", status: "draft", updated: "2026-11-02", sections: 3 },
-];
 export const banners = [
     { id: "bn-1", text: "15% off your first booking with WELCOME15", link: "/services", placement: "Top bar", active: true },
     {
@@ -1416,6 +1407,7 @@ export const payoutPeriods = {
 
 /** Services featured under "In season now" on the Offers page. */
 export const seasonalServices = ["pest-control", "gutter-cleaning", "pressure-washing", "window-cleaning"];
+export const seasonalText = "Spring in Hobart means spiders, blocked gutters and mossy paths.";
 
 /** Booking rules (Admin › Settings › Booking rules). */
 export const bookingRules = {
@@ -1423,8 +1415,7 @@ export const bookingRules = {
     windowDays: 14,
     freeCancelHours: 24,
     lateCancelFeePercent: 50,
+    guaranteeHours: 48,
     maxJobsPerSlot: 6,
     sundays: false,
-    requireDeposit: false,
-    depositPercent: 20,
 };

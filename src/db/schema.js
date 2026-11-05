@@ -407,6 +407,7 @@ export const pages = pgTable(
     id: serial("id").primaryKey(),
     slug: varchar("slug", { length: 120 }).notNull(),
     title: varchar("title", { length: 160 }).notNull(),
+    intro: varchar("intro", { length: 400 }), // text under the page title
     blocks: jsonb("blocks").$type().default([]),
     seoTitle: varchar("seo_title", { length: 160 }),
     seoDescription: varchar("seo_description", { length: 300 }),

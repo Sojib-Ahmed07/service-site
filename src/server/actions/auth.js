@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { auth, authProviders } from "@/server/auth";
 import { homeFor, safeNext } from "@/server/session";
+import { logError } from "@/server/errors";
 
 const email = z.email({ error: "Enter a valid email address." }).max(255);
 const password = z.string().min(8, { error: "Use at least 8 characters." }).max(128, { error: "Use 128 characters or fewer." });
@@ -55,7 +56,7 @@ export async function signIn(formData) {
         if (err?.status === "TOO_MANY_REQUESTS" || err?.statusCode === 429) {
             return { ok: false, error: "Too many attempts. Please wait a minute and try again." };
         }
-        console.error("[signIn]", err);
+        logError("signIn", err);
         return { ok: false, error: "We couldn’t log you in right now. Please try again." };
     }
 
@@ -99,7 +100,7 @@ export async function signUp(formData) {
             };
         }
         if (code === "PASSWORD_TOO_SHORT") return { ok: false, fieldErrors: { password: "Use at least 8 characters." } };
-        console.error("[signUp]", err);
+        logError("signUp", err);
         return { ok: false, error: "We couldn’t create your account right now. Please try again." };
     }
     redirect(safeNext(formData.get("next"), "/account"));
@@ -115,7 +116,7 @@ export async function requestPasswordReset(formData) {
             headers: await headers(),
         });
     } catch (err) {
-        console.error("[requestPasswordReset]", err);
+        logError("requestPasswordReset", err);
     }
     return { ok: true };
 }
@@ -135,7 +136,7 @@ export async function resetPassword(formData) {
         if (errorCode(err) === "INVALID_TOKEN") {
             return { ok: false, error: "This reset link has expired or was already used. Please request a new one." };
         }
-        console.error("[resetPassword]", err);
+        logError("resetPassword", err);
         return { ok: false, error: "We couldn’t reset your password right now. Please try again." };
     }
     redirect("/login?reset=done");
@@ -155,7 +156,7 @@ export async function startGoogleSignIn(next) {
         });
         return res?.url ? { ok: true, url: res.url } : { ok: false, error: "Google sign-in isn’t available right now." };
     } catch (err) {
-        console.error("[startGoogleSignIn]", err);
+        logError("startGoogleSignIn", err);
         return { ok: false, error: "Google sign-in isn’t available right now." };
     }
 }
@@ -165,7 +166,7 @@ export async function signOut() {
     try {
         await auth.api.signOut({ headers: await headers() });
     } catch (err) {
-        console.error("[signOut]", err);
+        logError("signOut", err);
     }
     redirect("/");
 }

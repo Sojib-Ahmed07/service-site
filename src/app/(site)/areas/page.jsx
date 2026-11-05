@@ -3,19 +3,18 @@ import { PageHero } from "@/components/site/sections";
 import { CtaBand } from "@/components/site/server-sections";
 import { SuburbChecker } from "@/components/site/suburb-checker";
 import { getAreas } from "@/server/queries/catalog";
-import { getBusiness } from "@/server/queries/settings";
+import { getPage, pageMetadata } from "@/server/queries/content";
+import { PageBody } from "@/components/site/blocks";
 import { money } from "@/lib/utils";
 
-export const metadata = { title: "Areas we cover" };
+/** Header text is edited in Admin › Content › Pages. */
+export const generateMetadata = () => pageMetadata("/areas");
 
 export default async function AreasPage() {
-  const [{ zones, suburbs }, business] = await Promise.all([getAreas(), getBusiness()]);
+  const [{ zones, suburbs }, page] = await Promise.all([getAreas(), getPage("/areas")]);
   return (
     <>
-      <PageHero
-        title="Areas we cover"
-        body={`${business.region} and surrounds. Type your suburb to check availability and any travel fee.`}
-      >
+      <PageHero title={page.title} body={page.intro}>
         <div className="mt-8 max-w-xl">
           <SuburbChecker suburbs={suburbs} />
         </div>
