@@ -1,10 +1,12 @@
 // src/app/admin/layout.jsx
 import { count, eq } from "drizzle-orm";
 import { AdminShell } from "@/components/admin/shell";
+import { UploadsProvider } from "@/components/ui/upload";
 import { db } from "@/db";
 import { bookings, enquiries, partnerApplications, reviews } from "@/db/schema";
 import { requireAdmin } from "@/server/session";
 import { getBusiness } from "@/server/queries/settings";
+import { uploadsEnabled } from "@/server/uploads";
 
 export const metadata = { title: { default: "Admin", template: "%s · Admin" }, robots: { index: false } };
 
@@ -26,8 +28,10 @@ export default async function AdminLayout({ children }) {
   const admin = await requireAdmin();
   const [counts, business] = await Promise.all([sidebarCounts(), getBusiness()]);
   return (
-    <AdminShell user={{ name: admin.name, teamRole: admin.teamRole }} counts={counts} businessName={business.name}>
-      {children}
-    </AdminShell>
+    <UploadsProvider enabled={uploadsEnabled()}>
+      <AdminShell user={{ name: admin.name, teamRole: admin.teamRole }} counts={counts} businessName={business.name}>
+        {children}
+      </AdminShell>
+    </UploadsProvider>
   );
 }

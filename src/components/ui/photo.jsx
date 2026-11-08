@@ -1,10 +1,12 @@
+// src/components/ui/photo.jsx
 "use client";
 
 import { useState } from "react";
+import { optimisedImage } from "@/lib/files";
 import { cn } from "@/lib/utils";
 
 /**
- * Service photography. Pass an Unsplash photo id (or any full URL from your CMS).
+ * Service photography. Pass an Unsplash photo id, an uploaded (Cloudinary) image or any full https:// URL.
  * If the image fails to load, a neutral block keeps the layout intact.
  */
 export function Photo({ src, alt = "", className, sizes = 800, priority = false }) {
@@ -12,7 +14,7 @@ export function Photo({ src, alt = "", className, sizes = 800, priority = false 
   const url = !src
     ? null
     : src.startsWith("http")
-      ? src
+      ? optimisedImage(src, sizes) // uploaded (Cloudinary) photos get the right size + format; others unchanged
       : `https://images.unsplash.com/${src}?auto=format&fit=crop&w=${sizes}&q=75`;
   return (
     <div className={cn("relative overflow-hidden bg-ink-100", className)}>

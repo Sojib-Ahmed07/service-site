@@ -64,8 +64,12 @@ function DetailsCard({ user, onSaved }) {
 }
 
 const prefs = [
-    { key: "notifySms", label: "Booking updates by SMS", hint: "Assignment, reminders and arrival updates." },
-    { key: "notifyEmail", label: "Booking updates by email", hint: "Confirmations, receipts and invoices." },
+    { key: "notifySms", label: "Booking updates by SMS", hint: "Reminders and arrival updates by text, once we switch texts on." },
+    {
+        key: "notifyEmail",
+        label: "Booking updates by email",
+        hint: "Day-before reminders and review requests. Receipts and changes to your booking are always emailed.",
+    },
     { key: "marketingOptIn", label: "Seasonal reminders and offers", hint: "A few emails a year. Unsubscribe any time." },
 ];
 

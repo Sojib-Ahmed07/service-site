@@ -80,7 +80,8 @@ export function BookingManager({ data, timeSlots, jobSheetTemplate }) {
         }
         setModalError("");
         after?.(res);
-        if (success) toast(success);
+        // `warning` = saved, but an email didn't go out (or was only printed in the terminal).
+        if (res.warning || success) toast(res.warning || success);
         router.refresh();
       } catch {
         toast("Something went wrong. Please try again.");

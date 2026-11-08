@@ -4,8 +4,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Inbox as InboxIcon } from "lucide-react";
+import { Image as ImageIcon, Inbox as InboxIcon } from "lucide-react";
 import { replyToEnquiry, setApplicationStatus, setEnquiryStatus } from "@/server/actions/admin-people";
+import { privateFileHref } from "@/lib/files";
 import { cn, formatDate } from "@/lib/utils";
 import { FilterTabs } from "@/components/admin/ui";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
@@ -114,6 +115,21 @@ export function AdminInbox({ enquiries, applications, categoryNames }) {
             </div>
             <div className="flex-1 space-y-4 px-5 py-5">
               <p className="whitespace-pre-line leading-relaxed">{msg.message}</p>
+              {msg.attachments?.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {msg.attachments.map((ref, i) => (
+                    <a
+                      key={ref}
+                      href={privateFileHref(ref)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-line-strong px-3 text-sm font-semibold hover:bg-ink-50"
+                    >
+                      <ImageIcon className="size-4" /> Photo {i + 1}
+                    </a>
+                  ))}
+                </div>
+              )}
               {msg.replies.map((r, i) => (
                 <div key={i} className="rounded-xl bg-paper p-3 text-sm ring-1 ring-line">
                   <p className="whitespace-pre-line">{r.text}</p>
@@ -137,7 +153,7 @@ export function AdminInbox({ enquiries, applications, categoryNames }) {
                   onClick={() =>
                     run(
                       () => replyToEnquiry(msg.id, reply),
-                      "Reply sent",
+                      (res) => res.message ?? "Reply sent",
                       () => setReply(""),
                     )
                   }

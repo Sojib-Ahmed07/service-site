@@ -1,5 +1,6 @@
 // src/components/site/logo.jsx
 import Link from "next/link";
+import { optimisedImage } from "@/lib/files";
 import { site as defaults } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +21,19 @@ export function LogoMark({ className }) {
   );
 }
 
-/** `name` is the business name from Settings; falls back to the default brand name. */
-export function Logo({ inverse, href = "/", name = defaults.name }) {
+/**
+ * `name` is the business name from Settings; falls back to the default brand name.
+ * `src` is the uploaded logo (Settings › Business). Not used on dark backgrounds (`inverse`).
+ */
+export function Logo({ inverse, href = "/", name = defaults.name, src = "" }) {
+  if (src && !inverse) {
+    return (
+      <Link href={href} className="flex shrink-0 items-center" aria-label={`${name} home`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={optimisedImage(src, 360)} alt={name} className="h-8 w-auto max-w-[180px] object-contain" />
+      </Link>
+    );
+  }
   return (
     <Link href={href} className="flex items-center gap-2" aria-label={`${name} home`}>
       <LogoMark className="size-7" />

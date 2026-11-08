@@ -7,7 +7,7 @@
 > create or change, list any `npm install` / `db:push` / env changes, and ask for the current contents of any existing file
 > you need to edit that you haven't been shown. **Never guess what an existing file contains. Ask for it.**
 
-Last updated: **5 Nov 2026**, after Batch 6 + the Batch 3 missing-files fix.
+Last updated: **8 Nov 2026**, after Batch 8 (file uploads via Cloudinary). Batch 7 = email via Brevo.
 
 ---
 
@@ -23,7 +23,9 @@ Last updated: **5 Nov 2026**, after Batch 6 + the Batch 3 missing-files fix.
 | Stack | Next.js **16** (App Router, Turbopack) · React **19** · Tailwind CSS **v4** · lucide-react · zod **v4** · Better Auth **1.7** · Drizzle ORM + `pg` · Neon Postgres |
 | Data | **Everything comes from the database.** No mock data anywhere (`src/lib/data.js` was deleted). Website wording is edited in Admin › Content and Admin › Settings |
 | Card payments | **Not built — on hold until the owner picks a provider** (see §11). Customers "pay after the job"; admins record payments by hand |
-| Email / SMS | **Not connected yet.** `sendEmail()` prints emails to the server terminal. SMS job sheets open the admin's phone via an `sms:` link |
+| Email | **Brevo** (`BREVO_API_KEY` + `EMAIL_FROM`). Without them: printed in the terminal in dev, refused (honest error) in production |
+| SMS | **Not built (owner chose to skip for now).** Job sheets open the admin's phone via an `sms:` link |
+| File uploads | **Cloudinary** (`CLOUDINARY_*`). Browser → Cloudinary direct (signed). Private files (provider docs, problem photos) only via `/admin/files`. Without the keys every upload button hides |
 | Owner's machine | Windows, PowerShell, project at `D:\projects\service-site`. Their editor reformats files (4-space indent, CRLF) — that's fine |
 | Package manager | npm · Node 20.9+ |
 
@@ -91,11 +93,17 @@ npm run db:studio                # browse the DB
 - Public site `/` · customer area `/account` · admin panel `/admin`.
 - Admins can only be created with `user:password … --admin`, or by an Owner in Admin › Settings › Team.
 - `set-password` does **not** unblock a blocked account (unblock in Admin › Customers).
-- Password-reset links are printed in the terminal until an email provider is added.
+- Without `BREVO_API_KEY`/`EMAIL_FROM`, emails (incl. password-reset links) are printed in the `npm run dev` terminal.
+- Daily emails by hand: Admin › Settings › Notifications › "Run daily emails now", or
+  `curl.exe -H "Authorization: Bearer YOUR_CRON_SECRET" http://localhost:3000/api/cron/daily-emails`.
 
 **Env vars** (`.env.example`): `DATABASE_URL` (Neon **pooled** URL), `NEXT_PUBLIC_SITE_URL` (also Better Auth's base URL —
 must match the URL in the browser), `AUTH_SECRET` (32+ chars, required), optional `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
-(redirect URI `/api/auth/callback/google`). `STRIPE_*` placeholders are unused until payments are chosen.
+(redirect URI `/api/auth/callback/google`), `BREVO_API_KEY`, `EMAIL_FROM` (a sender/domain verified in Brevo),
+optional `EMAIL_FROM_NAME` (defaults to the business name), `CRON_SECRET` (16+ chars; Vercel Cron sends it as
+`Authorization: Bearer …`), `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` (all three or
+uploads stay off; free plans must tick Settings › Security › "Allow delivery of PDF and ZIP files").
+`STRIPE_*` placeholders are unused until payments are chosen.
 
 ---
 
@@ -133,9 +141,20 @@ must match the URL in the browser), `AUTH_SECRET` (32+ chars, required), optiona
 - **Removing packages/extras used by past bookings sets `active=false`** instead of deleting.
 - **Admin lists** (bookings, customers, payments) filter/sort/page on the server via URL params
   (`components/admin/use-query-state.js`, `pager.jsx`, `PAGE_SIZE` 50). Providers/inbox/reviews filter on the client.
+- **Email:** build content with a template from `server/email-templates.js`, then `sendEmail(template(biz, data))`.
+  Check the result: `{ ok, delivered, logged, skipped, error }`. Emails an admin asks for (invoice, reminder, reply,
+  "pro assigned") return `{ ok: false, error }` if not sent and log nothing. Emails after a saved change return
+  `{ ok: true, warning }` (shown as a toast). Never hold a DB transaction open while sending.
 - **CSV downloads** use `csvResponse()` in `src/server/csv.js` (escapes formula injection).
-- **Images:** the `Photo` component is a plain `<img>`; `src` is an Unsplash id (`photo-…`) or a full `https://` URL. No
-  uploads yet.
+- **Images:** the `Photo` component is a plain `<img>`; `src` is an Unsplash id (`photo-…`) or a full `https://` URL.
+  Cloudinary uploads get `f_auto,q_auto,c_limit,w_<sizes>` added (`optimisedImage()` in `lib/files.js`).
+- **Uploads:** `<UploadButton kind context onUploaded onError>` / `<ImageInput value onChange>` from
+  `components/ui/upload.jsx`. They render nothing unless an `UploadsProvider enabled` is above them (admin layout and
+  account layout set it from `uploadsEnabled()`). Never send files through a Server Action (Vercel's 4.5 MB body limit):
+  `prepareUpload` signs → browser POSTs to Cloudinary → `finishUpload` asks Cloudinary what arrived (format, bytes) and
+  returns the ref. Public ref = full https address; private ref = `cld:<public id>.<format>` (validate with `isPrivateRef`
+  plus the expected folder prefix before saving). Signatures are SHA-1 of sorted params + secret (`signParams`, matches
+  the official SDK; no SDK installed).
 - **Fonts:** `@fontsource-variable/instrument-sans` imported in `src/app/layout.jsx` (not `next/font/google`).
 - **Scripts in `src/db/*.js`** run under `tsx`, use relative imports (no `@/`), and load `.env.local` with
   `import { loadEnvConfig } from "@next/env"`. No top-level `await` — wrap in `main()`.
@@ -146,6 +165,7 @@ must match the URL in the browser), `AUTH_SECRET` (32+ chars, required), optiona
 
 ```
 .env.example · .prettierrc · drizzle.config.js · next.config.mjs · jsconfig.json · postcss.config.mjs · package.json
+vercel.json (daily cron: /api/cron/daily-emails at 22:00 UTC = 8–9am Hobart)
 AI_CONTEXT.md (this file) · START-HERE.md (how to open a new chat + next batch)
 
 src/
@@ -153,12 +173,16 @@ src/
   app/
     layout.jsx                 <html lang="en-AU">, font, title template "%s · Sorted"
     globals.css                design tokens, .container-x, .tabular, .settle animations
+    icon.svg, favicon.ico      site icon (orange tile + tick). Without them browsers' /favicon.ico requests hit [slug]
     not-found.jsx
     api/auth/[...all]/route.js Better Auth handler     api/health/route.js  → { ok, db }
+    api/cron/daily-emails/route.js  day-before reminders + review requests (needs CRON_SECRET)
+    admin/files/route.js       GET ?ref=cld:… → admins only → 302 to a 5-minute Cloudinary download link
 
     (site)/                    PUBLIC — layout.jsx: header, footer, "Top bar" banner, force-dynamic
       page.jsx                 Home. All copy/steps/photos/section order from settings "homepage"; "Home hero" banner
-      [slug]/page.jsx          Custom CMS pages (e.g. /careers) when published. Built-in routes always win
+      [slug]/page.jsx          Custom CMS pages (e.g. /careers) when published. Built-in routes always win.
+                               Non-slug paths (favicon.ico, robots.txt) 404 without a DB query
       services/page.jsx        ServiceBrowser          services/[slug]/page.jsx  PackagePicker, "Service pages" banner
       book/[slug]/page.jsx     BookingFlow (checkout)  book/success/page.jsx
       about, areas, offers, how-it-works, guarantee, help, contact, partners, blog, blog/[slug], terms, privacy
@@ -177,6 +201,7 @@ src/
 
   components/
     ui/       button (Button, ButtonLink, buttonClass) · form (Input, Textarea, Select, Label, Field, Checkbox)
+              upload ("use client": UploadsProvider, useUploadsEnabled, UploadButton, ImageInput)
               interactive ("use client": Switch, Tabs, Segmented, Accordion, Modal, useToast) · photo (Photo)
               misc (Badge, Card, CardHeader, Avatar, Stars, EmptyState, Table, Th, Td, SectionHeading)
               status (BookingBadge, PaymentBadge, ProviderBadge) · use-server-form.js
@@ -200,6 +225,8 @@ src/
     cms.js         builtInPages, isBuiltInPage, reservedSlugs, slugify, blockTypes, contentVariables, contentVars, fillVars,
                    homeSections, bannerPlacements, isImageRef
     dates.js       Hobart date helpers            utils.js  cn, money, money2, formatDate, initials, gstComponent
+    files.js       uploadKinds (image, logo, provider_doc, problem_photo), maxBytesFor (PDF 10 MB, photos 5 MB),
+                   checkFile, isPrivateRef, parsePrivateRef, privateFileHref, isPdfRef, optimisedImage
 
   db/
     schema.js            Drizzle schema (§8)        index.js  pg Pool + drizzle: import { db } from "@/db"
@@ -211,8 +238,15 @@ src/
 
   server/     (server only)
     auth.js · session.js (getCurrentUser, requireUser, requireAdmin, getAdmin, safeNext, homeFor)
-    email.js       sendEmail({ to, subject, text, event? }) — prints to terminal; `event` = "confirmation" | "cancellation"
-                   is skipped when switched off in Settings › Notifications
+    email.js       sendEmail(content) via Brevo + branded HTML layout/plain text; emailStatus(); `event` = confirmation |
+                   changes | cancellation | reminder | review → skipped when switched off in Settings › Notifications
+    email-templates.js  wording of every email: bookingReceived, bookingConfirmedByTeam, bookingUpdatedByTeam,
+                   bookingRescheduled, bookingCancelledByCustomer, bookingCancelledByTeam, proAssigned, dayBeforeReminder,
+                   reviewRequest, paymentReminder, taxInvoice, teamMessage, enquiryReply, passwordReset,
+                   officeNewBooking, officeCustomerChange, testEmail
+    notifications.js  runDailyEmails() — claims each booking via booking_events (unique index) so nothing sends twice
+    uploads.js     uploadsEnabled, signParams, signUpload, checkUpload (Admin API), destroyFile, destroyPrivate,
+                   privateDownloadUrl. Folders: sorted/site (public), sorted/private/docs, sorted/private/problems/<userId>
     errors.js      logError(tag, err)        csv.js  csvResponse(filename, header, rows)
     pricing.js     priceBooking, checkCouponRules, discountFor, cents
     booking-rules.js  checkDateAllowed, slotStartTime, isValidSlot, hoursUntilSlot, lockBookings (advisory lock 724117),
@@ -232,7 +266,9 @@ src/
                         getBannersAdmin, getFaqsAdmin, getTeam
     actions/   ("use server")
       checkout.js       applyCoupon, getSlotAvailability
-      bookings.js       createBooking, rescheduleBooking, cancelBooking, submitReview, reportProblem, sendBookingMessage
+      bookings.js       createBooking, rescheduleBooking, cancelBooking, submitReview, reportProblem(ref, text, photos),
+                        sendBookingMessage
+      uploads.js        prepareUpload(kind, context), finishUpload(kind, publicId, context)
       enquiries.js      submitEnquiry, submitPartnerApplication
       auth.js           signIn, signUp, requestPasswordReset, resetPassword, startGoogleSignIn, signOut
       account.js        updateProfile, updateNotificationPref, changePassword, saveAddress, deleteAddress,
@@ -247,6 +283,7 @@ src/
       admin-content.js  savePage, deletePage, saveHomepage, saveBanner, deleteBanner, saveFaq, deleteFaq, moveFaq,
                         savePost, deletePost
       admin-settings.js saveBusiness, saveBookingRules, saveNotifications, savePaymentSettings,
+                        sendTestEmail, runDailyEmailsNow,
                         addAdmin, setTeamRole, removeAdmin (team changes: Owners only; last Owner protected)
 ```
 
@@ -307,8 +344,22 @@ Admin: light sidebar, `AdminHeader` on every page, data in `Card` + `Table`, con
 - **Blog:** publish date empty = now; a future date schedules; same date keeps the original time.
 - **Team:** only Owners add/promote/change roles/remove; you can't remove yourself; there's always at least one Owner;
   removing access signs the person out (account stays as a customer).
-- **Emails:** automatic "booking received" and "booking cancelled (by admin)" can be switched off; "new booking" alert goes
-  to the business email if switched on; emails an admin sends by hand (updates, invoices, pro assigned, reminders) always go.
+- **Emails (Brevo):** replies go to the business email. Automatic, each switchable in Settings › Notifications:
+  booking received (checkout), customer changes (copy when they reschedule/cancel online), booking cancelled (by admin),
+  day-before reminder (assigned/confirmed jobs only), review request (completed in the last 7 days, no review yet).
+  Office alerts to the business email: new booking, customer reschedule/cancel. Reminders + review requests skip customers
+  with `notifyEmail` off. Always sent: password/"choose a password", and anything an admin sends by hand (phone-booking
+  confirmation, booking updated, pro assigned, tax invoice, payment reminder, team message, enquiry reply).
+  Tax invoice = "Tax invoice", ABN, issue date, line items (package, extras, travel fee, discount, manual adjustment),
+  GST (total/11). Every send is logged in the booking timeline with what really happened.
+- **Uploads:** provider documents (PDF/photo, private, saved with the provider form; replaced/removed files are deleted
+  from Cloudinary after the save), service photo, CMS image blocks, blog covers, homepage photos (public, URL fields still
+  accept Unsplash ids/https), logo (Settings › Business; header, sign-in pages, emails as PNG; the dark footer keeps the
+  text name), up to 3 problem photos per report (customer's completed booking only; their own folder only; shown as
+  "Photo 1…" links in Admin › Inbox). Files uploaded but never saved stay in Cloudinary (small cost; tidy in its Media
+  Library if needed).
+- **Daily job** (`runDailyEmails`): Vercel Cron daily + "Run daily emails now". Max 150 per run. Failed sends release their
+  claim so the next run retries.
 
 ---
 
@@ -328,24 +379,28 @@ Tables (key columns):
   seoDescription, sortOrder, featured, status · `packages` categoryId, name, summary, price, priceUnit, duration, includes,
   popular, active, sortOrder · `add_ons` categoryId, name, price, active
 - `providers` name, business, email, phone, abn, status, payType, payRate, payoutSchedule, availability(jsonb), rating,
-  bankBsb, bankAccount, notes · `provider_skills` · `provider_zones` · `provider_documents` type, fileUrl, expiresOn, verified
+  bankBsb, bankAccount, notes · `provider_skills` · `provider_zones` · `provider_documents` type, fileUrl (private ref "cld:…"),
+  expiresOn, verified
 - `bookings` reference, userId, categoryId, packageId, providerId, status, paymentStatus, addressLine, suburbId, accessNotes,
   serviceDate, timeSlot, subtotal, discount, surcharge, total, providerPay, couponCode, payoutId, customerNotes, internalNotes
-- `booking_add_ons` (price snapshot) · `booking_events` type (created|assigned|status|payment|note|message_customer|message_team)
+- `booking_add_ons` (price snapshot) · `booking_events` type (created|assigned|status|payment|note|message_customer|message_team|
+  email_reminder|email_review); unique index `booking_events_once_idx` on (bookingId, type) for the two email types (Batch 7)
 - `payments` bookingId, provider, providerRef, amount, status · `payouts` providerId, periodStart/End, amount, jobs, status, paidAt
 - `reviews` bookingId (unique), userId, categoryId, authorName, authorSuburb, rating, body, reply, status, featured
 - `coupons` code, description, type, value, minSpend, usageLimit, usedCount, categoryIds, restriction, expiresAt, active
 - `pages` slug ("/about"), title, **intro**, blocks(jsonb), seoTitle, seoDescription, status
 - `posts` slug, title, excerpt, body (legacy), blocks, coverImage, category, status, publishedAt
 - `banners` text, link, placement, active, startsAt, endsAt · `faqs` question, answer, section (general|payments), categoryId, sortOrder
-- `enquiries` (+ replies jsonb) · `partner_applications` · `activity_log` actorId, actorName, message
+- `enquiries` (+ replies jsonb, attachments jsonb = private refs, added Batch 8) · `partner_applications` · `activity_log` actorId, actorName, message
 - `site_settings` key → value(jsonb):
-  `business` {name, tagline, description, abn, phone, email, address, hours, city, region, social{facebook,instagram}} ·
+  `business` {name, tagline, description, abn, phone, email, address, hours, city, region, social{facebook,instagram},
+  logo (Cloudinary https or "")} ·
   `booking` {minNoticeHours, windowDays, freeCancelHours, lateCancelFeePercent, guaranteeHours, maxJobsPerSlot, sundays,
   timeSlots[]} · `images` {hero, cleaner, kitchen, livingRoom…} · `offers` {seasonal[slugs], seasonalTitle, seasonalText} ·
   `homepage` {heroTitle, heroText, heroBadge, popularTitle/Text, howTitle/Text, steps[{title,body}], teamTitle/Text,
   teamPoints[], reviewsTitle/Text, areasText, faqTitle, ctaTitle/Text, sections[{id,visible}]} ·
-  `notifications` {jobSheetTemplate, emails{confirmation,cancellation}, adminNewBooking} · `payments` {invoiceDays}
+  `notifications` {jobSheetTemplate, emails{confirmation,changes,cancellation,reminder,review}, adminNewBooking,
+  adminChanges} (missing keys default to on) · `payments` {invoiceDays}
 
 Content blocks (pages + posts): `heading|text|quote {id,type,text}` · `image {src,alt}` · `cta {text,href}` ·
 `cards {style:"numbered"|"ticks", items:[{title,body}]}`.
@@ -372,6 +427,8 @@ Content blocks (pages + posts): `heading|text|quote {id,type,text}` · `image {s
 
 | Date | Change | Next |
 | --- | --- | --- |
+| 2026-11-08 | **Batch 8: file uploads (Cloudinary).** Signed direct-to-Cloudinary uploads (no new package), server re-checks format/size with Cloudinary, private "authenticated" files for provider documents + problem photos opened only via `/admin/files` (5-min links), upload buttons on service photo / CMS image blocks / blog cover / homepage photos, logo in Settings › Business (header, sign-in, emails), up to 3 photos on "Report a problem" shown in the Inbox, buttons hidden when Cloudinary isn't set. `enquiries.attachments` column. Guarantee hours in the report dialog now from settings. | Batch 9 (payments, once provider chosen) or 10 (launch) |
+| 2026-11-08 | **Batch 7: real email (Brevo).** Branded HTML + text layout, all emails in `email-templates.js`, honest results (errors/warnings, timeline entries), new emails (customer reschedule/cancel copies, office change alert, day-before reminder, review request, proper tax invoice), daily cron route + `vercel.json` + "Run now", Settings › Notifications (connection status, test email, 5 customer + 2 office switches). Unique index on `booking_events`. Re-sent the missing 5 Nov favicon + `[slug]` fix. SMS skipped by owner. | Batch 8 |
 | 2026-11-05 | **Fix:** owner's project was missing 9 Batch 3 files (`server/errors.js` + 8 older versions: booking-flow, actions/account, checkout, auth, enquiries, queries/account, book/success, account/bookings/[id]) → "Module not found". Re-sent; verified the owner's zip builds. | — |
 | 2026-11-05 | **Batch 6: website content + settings.** Admin › Content (pages incl. custom pages, homepage editor, banners with dates, FAQs, blog with scheduling, block editor incl. cards). Admin › Settings (business, booking rules incl. guarantee hours + arrival windows, notification switches, invoice terms, team management). All public wording from DB with `{variables}`. `pages.intro` column, `npm run db:content`, `src/lib/data.js` deleted. | Batch 7 |
 | 2026-11-04 | **Batch 5: catalogue & money.** Services + editor, areas, promo codes (restrictions), payments (paged, reminders, Xero CSV), payouts. | |
@@ -390,8 +447,9 @@ Content blocks (pages + posts): `heading|text|quote {id,type,text}` · `image {s
 | Bookings, reschedule/cancel, reviews, complaints | ✅ |
 | Admin operations, catalogue, coupons, payments records, payouts | ✅ |
 | CMS + settings + admin team | ✅ |
-| **Email + SMS sending** | ⬜ Next (Batch 7) |
-| **File uploads** (provider docs, service/CMS images, problem photos) | ⬜ |
+| **Email sending (Brevo) + daily reminders/reviews** | ✅ (needs owner's Brevo key + verified sender) |
+| **SMS** | ⏸ Skipped for now (owner's choice) |
+| **File uploads** (provider docs, service/CMS images, logo, problem photos) | ✅ (needs owner's Cloudinary keys) |
 | **Card payments** | ⏸ Waiting on the owner's choice of provider |
 | **Deploy** (Vercel + Neon, Sydney region, domain, env vars) | ⬜ |
 | Pre-launch content (real business details, real reviews, lawyer-checked terms) | ⬜ Owner |
@@ -405,12 +463,17 @@ Content blocks (pages + posts): `heading|text|quote {id,type,text}` · `image {s
   Don't implement any provider until the owner chooses. Plan when chosen: authorise at booking, capture after the job,
   webhook updates `payments` + `bookings.paymentStatus`, keep "pay after the job"; settings go in Settings › Payments;
   checkout's card option is currently shown disabled in `booking-flow.jsx`.
-- **Email/SMS providers not chosen** (suggestions: Resend or Postmark for email; MessageMedia, ClickSend or Twilio for SMS —
-  Australian sender IDs). Ask the owner before adding a paid service.
+- **Email = Brevo** (chosen 8 Nov). Before launch: verify the sending domain in Brevo (DKIM + DMARC DNS records).
+- **SMS skipped for now.** Options when wanted: ClickSend, MessageMedia, Twilio (AU sender IDs), or Brevo SMS. When built:
+  job sheet from the server (keep the `sms:` link as fallback), customer SMS respecting `notifySms`, bring back SMS switches.
+- Sample customers in the seed use `@example.com`. Don't run the daily emails with Brevo connected against seed data you
+  care about (they'd bounce); use `db:seed -- --reset` only in dev.
 - Business details are placeholders — edit in Admin › Settings › Business.
 - Reviews in `seed-data.js` are **sample text** — delete before launch (Australian Consumer Law bans fake testimonials).
 - Terms/Privacy are template text — need a lawyer's review (Admin › Content › Pages).
-- Photos are Unsplash ids/URLs until uploads exist.
-- Removed on purpose until they can work: logo upload, SMS switches, deposit option, GST switch, payment-gateway picker.
+- **File storage = Cloudinary** (chosen 8 Nov), private docs admins-only, limits photos 5 MB / PDFs 10 MB.
+- Photos are still the sample Unsplash ids until real photos are uploaded.
+- Removed on purpose until they can work: SMS switches, deposit option, GST switch, payment-gateway picker.
+  (The customer's own "Booking updates by SMS" preference is kept and says texts aren't switched on yet.)
 - Test logins used during development (local seed only): admin `rachel@sorted.com.au` / `AdminPass123`,
   customer `sophie.m@example.com` / `testpass123` — set with `npm run user:password`.

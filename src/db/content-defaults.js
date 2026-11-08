@@ -226,10 +226,14 @@ export const notificationDefaults = {
         "New Sorted job {booking_id}\n{service} — {package}\n{date}, {slot}\n{address}\nNotes: {access_notes}\nPay: {provider_pay}\nReply YES to confirm.",
     // Automatic customer emails (emails you send by hand from a booking always go out).
     emails: {
-        confirmation: true,
-        cancellation: true,
+        confirmation: true, // booking received (online checkout)
+        changes: true, // customer rescheduled / cancelled online
+        cancellation: true, // you cancelled the booking
+        reminder: true, // day before the job (daily job)
+        review: true, // review request after a completed job (daily job)
     },
-    adminNewBooking: true,
+    adminNewBooking: true, // email the business when someone books online
+    adminChanges: true, // email the business when a customer reschedules or cancels
 };
 
 /** Rows for the `pages` table (used by the seed and `npm run db:content`). */

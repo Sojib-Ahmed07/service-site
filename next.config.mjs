@@ -1,8 +1,12 @@
+// next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    // Add your image hosts here (Cloudinary, UploadThing, S3, Vercel Blob…) when you add real photos.
-    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
+    // Photos are plain <img> tags (components/ui/photo.jsx), so this list only matters if next/image is used later.
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com" },
+      { protocol: "https", hostname: "res.cloudinary.com" },
+    ],
   },
 };
 

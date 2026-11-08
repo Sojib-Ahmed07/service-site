@@ -22,11 +22,14 @@ import {
 } from "@/db/schema";
 import { weekdays } from "@/lib/constants";
 import { isISODate } from "@/lib/dates";
+import { isPrivateRef } from "@/lib/files";
 import { auth } from "@/server/auth";
-import { sendEmail } from "@/server/email";
+import { emailStatus, sendEmail } from "@/server/email";
+import { enquiryReply } from "@/server/email-templates";
 import { logError } from "@/server/errors";
 import { getBusiness } from "@/server/queries/settings";
 import { getAdmin } from "@/server/session";
+import { destroyPrivate } from "@/server/uploads";
 
 const denied = { ok: false, error: "Only admins can do that. Please log in again." };
 const failed = (tag, err, msg = "Something went wrong. Please try again.") => {
@@ -123,8 +126,15 @@ export async function sendCustomerPasswordReset(id) {
         if (!u) return { ok: false, error: "Customer not found." };
         if (u.blocked) return { ok: false, error: "Unblock the customer first." };
         await auth.api.requestPasswordReset({ body: { email: u.email, redirectTo: "/reset-password" }, headers: await headers() });
-        return { ok: true, message: `Reset link sent to ${u.email}` };
+        return {
+            ok: true,
+            message: emailStatus().connected
+                ? `Reset link sent to ${u.email}`
+                : "Email isn’t connected yet, so the reset link was printed in the server terminal",
+        };
     } catch (err) {
+        const msg = String(err?.message ?? "");
+        if (msg.startsWith("EMAIL_FAILED: ")) return { ok: false, error: msg.slice(14) };
         return failed("sendCustomerPasswordReset", err);
     }
 }
@@ -190,14 +200,19 @@ export async function saveProvider(formData) {
         return { ok: false, error: "Please check the highlighted fields.", fieldErrors: fieldErrors(parsed.error) };
     const v = parsed.data;
 
-    // Documents: doc_<type>_state = "verified" | "missing" | "na", doc_<type>_expires = YYYY-MM-DD
+    // Documents: doc_<type>_state = "verified" | "missing" | "na", doc_<type>_expires = YYYY-MM-DD,
+    // doc_<type>_file = a private upload ref ("cld:sorted/private/docs/….pdf") or "".
     const docs = [];
     for (const type of docTypes) {
         const state = String(formData.get(`doc_${type}_state`) ?? "missing");
         const expires = String(formData.get(`doc_${type}_expires`) ?? "");
+        const file = String(formData.get(`doc_${type}_file`) ?? "");
         if (expires && !isISODate(expires)) return { ok: false, fieldErrors: { [`doc_${type}`]: "Enter a valid date." } };
+        if (file && !(isPrivateRef(file) && file.startsWith("cld:sorted/private/docs/"))) {
+            return { ok: false, fieldErrors: { [`doc_${type}`]: "That file isn’t valid. Please upload it again." } };
+        }
         if (state === "na") continue;
-        docs.push({ type, verified: state === "verified", expiresOn: expires || null });
+        docs.push({ type, verified: state === "verified", expiresOn: expires || null, fileUrl: file || null });
     }
     if (v.status === "active" && !v.skills.length) {
         return { ok: false, fieldErrors: { skills: "Choose at least one service before making them active." } };
@@ -208,6 +223,12 @@ export async function saveProvider(formData) {
             v.skills.length ? db.select({ id: categories.id }).from(categories).where(inArray(categories.slug, v.skills)) : [],
             v.zones.length ? db.select({ id: zones.id }).from(zones).where(inArray(zones.name, v.zones)) : [],
         ]);
+        // Files on record before this save, so replaced/removed ones can be deleted from storage afterwards.
+        const before = v.id
+            ? (await db.select({ file: providerDocuments.fileUrl }).from(providerDocuments).where(eq(providerDocuments.providerId, v.id)))
+                .map((d) => d.file)
+                .filter(Boolean)
+            : [];
         const id = await db.transaction(async (tx) => {
             const values = {
                 name: v.name,
@@ -244,6 +265,8 @@ export async function saveProvider(formData) {
                 .values({ actorId: admin.id, actorName: who(admin), message: `${v.id ? "Updated" : "Added"} provider ${v.name}` });
             return pid;
         });
+        const kept = new Set(docs.map((d) => d.fileUrl).filter(Boolean));
+        await Promise.all(before.filter((f) => !kept.has(f)).map((f) => destroyPrivate(f)));
         revalidatePath("/admin", "layout");
         return { ok: true, id, message: v.id ? "Provider saved" : "Provider added" };
     } catch (err) {
@@ -268,11 +291,8 @@ export async function replyToEnquiry(id, text) {
             .limit(1);
         if (!e) return { ok: false, error: "Message not found." };
         const business = await getBusiness();
-        await sendEmail({
-            to: e.email,
-            subject: `Re: ${e.subject || "your message"}`,
-            text: `Hi ${e.name.split(" ")[0]},\n\n${body}\n\n${admin.name.split(" ")[0]}\n${business.name} · ${business.phone}`,
-        });
+        const sent = await sendEmail(enquiryReply(business, e, body, admin.name));
+        if (!sent.ok) return { ok: false, error: `Your reply wasn’t sent: ${sent.error}` };
         const reply = { by: admin.name, text: body, at: new Date().toISOString() };
         await db
             .update(enquiries)
@@ -280,7 +300,7 @@ export async function replyToEnquiry(id, text) {
             .where(eq(enquiries.id, e.id));
         await activity(admin, `Replied to ${e.name}`);
         revalidatePath("/admin", "layout");
-        return { ok: true, reply };
+        return { ok: true, reply, ...(sent.logged ? { message: "Reply saved. Email isn’t connected yet, so it was printed in the server terminal" } : {}) };
     } catch (err) {
         return failed("replyToEnquiry", err);
     }

@@ -1,7 +1,9 @@
 // src/app/(site)/account/layout.jsx
 import { AccountNav } from "@/components/site/account-nav";
 import { Avatar } from "@/components/ui/misc";
+import { UploadsProvider } from "@/components/ui/upload";
 import { requireUser } from "@/server/session";
+import { uploadsEnabled } from "@/server/uploads";
 
 export const metadata = { title: "My account" };
 
@@ -19,7 +21,9 @@ export default async function AccountLayout({ children }) {
         </div>
         <AccountNav />
       </aside>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        <UploadsProvider enabled={uploadsEnabled()}>{children}</UploadsProvider>
+      </div>
     </div>
   );
 }

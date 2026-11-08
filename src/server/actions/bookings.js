@@ -21,7 +21,7 @@ import {
     users,
 } from "@/db/schema";
 import { formatISODate, isISODate } from "@/lib/dates";
-import { money2 } from "@/lib/utils";
+import { isPrivateRef } from "@/lib/files";
 import { auth } from "@/server/auth";
 import {
     checkDateAllowed,
@@ -32,12 +32,20 @@ import {
     slotHasRoom,
 } from "@/server/booking-rules";
 import { sendEmail } from "@/server/email";
+import {
+    bookingCancelledByCustomer,
+    bookingReceived,
+    bookingRescheduled,
+    officeCustomerChange,
+    officeNewBooking,
+} from "@/server/email-templates";
 import { logError } from "@/server/errors";
 import { priceBooking } from "@/server/pricing";
 import { getBookingRules, getBusiness, getNotificationSettings } from "@/server/queries/settings";
 import { getCurrentUser } from "@/server/session";
 
 const CHANGEABLE = ["new", "assigned", "confirmed"];
+const MAX_PROBLEM_PHOTOS = 3;
 const signedOut = { ok: false, error: "Your session has ended. Please log in again." };
 
 /** Things that go wrong on purpose inside a transaction, shown to the customer as-is. */
@@ -250,24 +258,21 @@ export async function createBooking(input) {
     }
 
     // After the booking is safely saved: emails (never block the booking on these).
-    const when = `${formatISODate(v.date)}, ${v.slot}`;
+    const details = {
+        reference: result.reference,
+        name: v.name,
+        email: v.email,
+        phone: v.phone,
+        service: q.category.name,
+        packageName: q.package.name,
+        date: v.date,
+        slot: v.slot,
+        address: addressLine,
+        total: q.total,
+    };
     try {
-        await sendEmail({
-            to: v.email,
-            event: "confirmation",
-            subject: `Booking ${result.reference} received — ${q.category.name}`,
-            text: [
-                `Hi ${v.name.split(" ")[0]},`,
-                "",
-                `Thanks for booking with ${business.name}. Your reference is ${result.reference}.`,
-                `${q.category.name} — ${q.package.name}`,
-                when,
-                addressLine,
-                `Total ${money2(q.total)} (GST incl.), payable after the job.`,
-                "",
-                "We’ll let you know once a pro is assigned.",
-            ].join("\n"),
-        });
+        const sent = await sendEmail(bookingReceived(business, details));
+        if (!sent.ok) console.error(`[createBooking] Confirmation email for ${result.reference} failed: ${sent.error}`);
         if (!signedIn && v.createAccount) {
             // Lets a guest set a password (works for new and returning guests).
             await auth.api.requestPasswordReset({
@@ -281,19 +286,9 @@ export async function createBooking(input) {
     try {
         // Alert the office (Settings › Notifications › "Email me about new bookings").
         const notifications = await getNotificationSettings();
-        if (notifications.adminNewBooking && business.email) {
-            await sendEmail({
-                to: business.email,
-                subject: `New booking ${result.reference} — ${q.category.name}`,
-                text: [
-                    `${v.name} booked ${q.category.name} — ${q.package.name}`,
-                    when,
-                    addressLine,
-                    `Total ${money2(q.total)}`,
-                    "",
-                    `Assign a pro: ${business.url}/admin/bookings/${result.reference}`,
-                ].join("\n"),
-            });
+        if (notifications.adminNewBooking !== false && business.email) {
+            const sent = await sendEmail(officeNewBooking(business, details));
+            if (!sent.ok) console.error(`[createBooking] Office alert for ${result.reference} failed: ${sent.error}`);
         }
     } catch (err) {
         logError("createBooking:adminEmail", err);
@@ -322,6 +317,7 @@ async function ownBooking(user, reference) {
             paymentStatus: bookings.paymentStatus,
             serviceDate: bookings.serviceDate,
             timeSlot: bookings.timeSlot,
+            addressLine: bookings.addressLine,
             categoryId: bookings.categoryId,
             categoryName: categories.name,
             categorySlug: categories.slug,
@@ -338,6 +334,25 @@ async function ownBooking(user, reference) {
 
 const tooLate = (business, hours) =>
     `Online changes close ${hours} hours before your arrival window. Please call us on ${business.phone}.`;
+
+/**
+ * Emails the customer a copy of their own change (switch: "changes") and alerts the office
+ * (switch: "Email me when customers change a booking"). Never throws: the change is already saved.
+ */
+async function notifyChange(business, change) {
+    try {
+        const email = change.kind === "cancelled" ? bookingCancelledByCustomer(business, change) : bookingRescheduled(business, change);
+        const sent = await sendEmail(email);
+        if (!sent.ok) console.error(`[notifyChange] Email to the customer about ${change.reference} failed: ${sent.error}`);
+        const notifications = await getNotificationSettings();
+        if (notifications.adminChanges !== false && business.email) {
+            const office = await sendEmail(officeCustomerChange(business, change));
+            if (!office.ok) console.error(`[notifyChange] Office alert for ${change.reference} failed: ${office.error}`);
+        }
+    } catch (err) {
+        logError("notifyChange", err);
+    }
+}
 
 /** Move a booking to a new day / window. Any assigned pro is released for re-assigning. */
 export async function rescheduleBooking(reference, date, slot) {
@@ -356,12 +371,12 @@ export async function rescheduleBooking(reference, date, slot) {
         const dateCheck = checkDateAllowed(date, rules);
         if (!dateCheck.ok) return dateCheck;
 
+        const releasedPro = b.status !== "new";
         await db.transaction(async (tx) => {
             await lockBookings(tx);
             if (!(await slotHasRoom(tx, date, slot, rules, b.id))) {
                 throw new BookingError("That arrival window is full. Please choose another.");
             }
-            const releasedPro = b.status !== "new";
             await tx
                 .update(bookings)
                 .set({
@@ -380,6 +395,19 @@ export async function rescheduleBooking(reference, date, slot) {
             await tx
                 .insert(activityLog)
                 .values({ actorId: user.id, actorName: user.name, message: `${b.reference} rescheduled by customer` });
+        });
+        await notifyChange(business, {
+            kind: "rescheduled",
+            reference: b.reference,
+            name: user.name,
+            email: user.email,
+            service: b.categoryName,
+            date,
+            slot,
+            oldDate: b.serviceDate,
+            oldSlot: b.timeSlot,
+            address: b.addressLine,
+            releasedPro,
         });
         refreshPaths(b.reference);
         return { ok: true };
@@ -420,6 +448,18 @@ export async function cancelBooking(reference, reason) {
             await tx
                 .insert(activityLog)
                 .values({ actorId: user.id, actorName: user.name, message: `${b.reference} cancelled by customer` });
+        });
+        await notifyChange(business, {
+            kind: "cancelled",
+            reference: b.reference,
+            name: user.name,
+            email: user.email,
+            service: b.categoryName,
+            date: b.serviceDate,
+            slot: b.timeSlot,
+            reason: why,
+            releasedPro: b.status !== "new",
+            needsRefund,
         });
         refreshPaths(b.reference);
         return { ok: true, needsRefund };
@@ -469,13 +509,22 @@ export async function submitReview(reference, rating, text) {
     }
 }
 
-/** "Report a problem" → a Complaint in Admin › Inbox plus an internal note on the booking. */
-export async function reportProblem(reference, text) {
+/**
+ * "Report a problem" → a Complaint in Admin › Inbox plus an internal note on the booking.
+ * `photos` = up to 3 private upload refs from this customer's own folder (see actions/uploads.js).
+ */
+export async function reportProblem(reference, text, photos = []) {
     const user = await getCurrentUser();
     if (!user) return signedOut;
     const body = String(text ?? "").trim();
     if (body.length < 10) return { ok: false, error: "Tell us a little more (at least 10 characters)." };
     if (body.length > 5000) return { ok: false, error: "Please keep it under 5,000 characters." };
+    const refs = Array.isArray(photos) ? [...new Set(photos.map(String))] : [];
+    if (refs.length > MAX_PROBLEM_PHOTOS) return { ok: false, error: `You can add up to ${MAX_PROBLEM_PHOTOS} photos.` };
+    const ownFolder = `cld:sorted/private/problems/${user.id}/`;
+    if (refs.some((r) => !isPrivateRef(r) || !r.startsWith(ownFolder))) {
+        return { ok: false, error: "One of the photos didn’t upload properly. Please remove it and try again." };
+    }
     try {
         const b = await ownBooking(user, reference);
         if (!b) return { ok: false, error: "We couldn’t find that booking." };
@@ -489,11 +538,12 @@ export async function reportProblem(reference, text) {
                 bookingRef: b.reference,
                 subject: `Problem with ${b.reference} (${b.categoryName})`,
                 message: body,
+                attachments: refs,
             });
             await tx.insert(bookingEvents).values({
                 bookingId: b.id,
                 type: "note",
-                message: `Customer reported a problem: ${body}`,
+                message: `Customer reported a problem${refs.length ? ` (${refs.length} photo${refs.length === 1 ? "" : "s"} in the Inbox)` : ""}: ${body}`,
                 actorId: user.id,
             });
             await tx

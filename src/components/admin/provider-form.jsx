@@ -3,13 +3,16 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { FileText } from "lucide-react";
 import { saveProvider } from "@/server/actions/admin-people";
 import { weekdays } from "@/lib/constants";
+import { isPdfRef, privateFileHref } from "@/lib/files";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { useToast } from "@/components/ui/interactive";
+import { UploadButton, useUploadsEnabled } from "@/components/ui/upload";
 import { useServerForm } from "@/components/ui/use-server-form";
 
 const docTypes = [
@@ -22,7 +25,7 @@ const docTypes = [
 /**
  * Create or edit a provider. Providers don’t log in — this is the admin’s record of them.
  * `categories` = [{ slug, name }], `zones` = [{ id, name }] from the database.
- * Document files (certificates) are uploaded in a later batch; for now record status + expiry.
+ * Document files (certificates) upload privately to Cloudinary; they're saved with the rest of the form.
  */
 export function ProviderForm({ provider, categories, zones }) {
   const router = useRouter();
@@ -51,6 +54,11 @@ export function ProviderForm({ provider, categories, zones }) {
   const [avail, setAvail] = useState(p.availability);
   const toggle = (set) => (v) => set((x) => (x.includes(v) ? x.filter((i) => i !== v) : [...x, v]));
   const docOf = (type) => p.docs.find((d) => d.type === type);
+  const uploads = useUploadsEnabled();
+  // Document files: { abn: "cld:…", … }. Saved with the form via hidden inputs.
+  const [files, setFiles] = useState(() => Object.fromEntries(docTypes.map((d) => [d.key, docOf(d.key)?.file ?? ""])));
+  const [fileErrors, setFileErrors] = useState({});
+  const setFile = (key, ref) => setFiles((f) => ({ ...f, [key]: ref }));
 
   const { pending, result, onSubmit, errors } = useServerForm(saveProvider, {
     onSuccess: (res) => {
@@ -174,33 +182,75 @@ export function ProviderForm({ provider, categories, zones }) {
       <Card>
         <CardHeader
           title="Documents"
-          description="Record what you’ve checked and when it expires. Certificate uploads come in a later update."
+          description={
+            uploads
+              ? "Upload certificates (PDF or photo, up to 10 MB) and record what you’ve checked. Files are private: only admins can open them. Changes are kept when you save."
+              : "Record what you’ve checked and when it expires. Certificate uploads aren’t switched on yet."
+          }
         />
         <ul className="divide-y divide-line">
           {docTypes.map((d) => {
             const v = docOf(d.key);
             const state = v ? (v.verified ? "verified" : "missing") : d.key === "licence" ? "na" : "missing";
+            const file = files[d.key];
             return (
-              <li key={d.key} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
-                <p className="flex-1 font-medium">{d.label}</p>
-                <Select
-                  name={`doc_${d.key}_state`}
-                  defaultValue={state}
-                  className="h-9 w-full text-sm sm:w-48"
-                  aria-label={`${d.label} status`}
-                >
-                  <option value="verified">Verified</option>
-                  <option value="missing">Missing / not checked</option>
-                  {d.key === "licence" && <option value="na">Not required</option>}
-                </Select>
-                <Input
-                  type="date"
-                  name={`doc_${d.key}_expires`}
-                  defaultValue={v?.expiresOn ?? ""}
-                  className="h-9 w-full text-sm sm:w-40"
-                  aria-label={`${d.label} expiry`}
-                />
-                {errors[`doc_${d.key}`] && <p className="text-sm text-danger">{errors[`doc_${d.key}`]}</p>}
+              <li key={d.key} className="space-y-3 px-5 py-4">
+                <input type="hidden" name={`doc_${d.key}_file`} value={file} />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <p className="flex-1 font-medium">{d.label}</p>
+                  <Select
+                    name={`doc_${d.key}_state`}
+                    defaultValue={state}
+                    className="h-9 w-full text-sm sm:w-48"
+                    aria-label={`${d.label} status`}
+                  >
+                    <option value="verified">Verified</option>
+                    <option value="missing">Missing / not checked</option>
+                    {d.key === "licence" && <option value="na">Not required</option>}
+                  </Select>
+                  <Input
+                    type="date"
+                    name={`doc_${d.key}_expires`}
+                    defaultValue={v?.expiresOn ?? ""}
+                    className="h-9 w-full text-sm sm:w-40"
+                    aria-label={`${d.label} expiry`}
+                  />
+                </div>
+                {(file || uploads) && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {file ? (
+                      <>
+                        <a
+                          href={privateFileHref(file)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 font-medium text-ink-900 hover:underline"
+                        >
+                          <FileText className="size-4" /> View {isPdfRef(file) ? "PDF" : "photo"}
+                        </a>
+                        <span className="text-muted">·</span>
+                      </>
+                    ) : (
+                      <span className="text-muted">No file uploaded.</span>
+                    )}
+                    <UploadButton
+                      kind="provider_doc"
+                      label={file ? "Replace" : "Upload file"}
+                      onUploaded={(ref) => setFile(d.key, ref)}
+                      onError={(msg) => setFileErrors((e) => ({ ...e, [d.key]: msg }))}
+                    />
+                    {file && (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setFile(d.key, "")}>
+                        Remove file
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {(fileErrors[d.key] || errors[`doc_${d.key}`]) && (
+                  <p role="alert" className="text-sm text-danger">
+                    {fileErrors[d.key] || errors[`doc_${d.key}`]}
+                  </p>
+                )}
               </li>
             );
           })}

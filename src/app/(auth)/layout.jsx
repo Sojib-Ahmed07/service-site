@@ -11,7 +11,7 @@ export default async function AuthLayout({ children }) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1fr_1.05fr]">
       <div className="flex flex-col px-4 py-6 sm:px-10">
-        <Logo name={business.name} />
+        <Logo name={business.name} src={business.logo} />
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">{children}</div>
       </div>
       <div className="relative hidden p-3 lg:block">

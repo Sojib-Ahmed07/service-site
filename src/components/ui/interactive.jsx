@@ -148,13 +148,14 @@ export function useToast() {
   const [msg, setMsg] = useState(null);
   useEffect(() => {
     if (!msg) return;
-    const t = setTimeout(() => setMsg(null), 2800);
+    // Longer messages (e.g. "saved, but the email wasn't sent…") stay up long enough to read.
+    const t = setTimeout(() => setMsg(null), String(msg).length > 60 ? 6500 : 2800);
     return () => clearTimeout(t);
   }, [msg]);
   const node = msg ? (
     <div
       role="status"
-      className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-white shadow-xl"
+      className="fixed bottom-6 left-1/2 z-[60] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl bg-ink-900 px-5 py-3 text-center text-sm font-medium text-white shadow-xl"
     >
       {msg}
     </div>

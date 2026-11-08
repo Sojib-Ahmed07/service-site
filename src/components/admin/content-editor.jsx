@@ -23,8 +23,8 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Modal, useToast } from "@/components/ui/interactive";
-import { Photo } from "@/components/ui/photo";
 import { VariablesHint } from "@/components/admin/cms-manager";
+import { ImageInput } from "@/components/ui/upload";
 
 const blockTypes = [
   { type: "heading", label: "Heading", icon: Heading2 },
@@ -267,24 +267,15 @@ export function ContentEditor({ doc, isPost, services = [], offers = null, categ
               />
             )}
             {b.type === "image" && (
-              <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
-                <Photo src={b.src} alt="" sizes={400} className="aspect-[16/9] rounded-lg" />
-                <div className="grid gap-2">
-                  <Input
-                    value={b.src ?? ""}
-                    onChange={(e) => update(b.id, { src: e.target.value })}
-                    placeholder="Unsplash id (photo-…) or https://… image address"
-                    maxLength={500}
-                    aria-label="Image address"
-                  />
-                  <Input
-                    value={b.alt ?? ""}
-                    onChange={(e) => update(b.id, { alt: e.target.value })}
-                    placeholder="Alt text (describe the image)"
-                    maxLength={200}
-                    aria-label="Alt text"
-                  />
-                </div>
+              <div className="grid gap-2 sm:max-w-md">
+                <ImageInput value={b.src ?? ""} onChange={(v) => update(b.id, { src: v })} />
+                <Input
+                  value={b.alt ?? ""}
+                  onChange={(e) => update(b.id, { alt: e.target.value })}
+                  placeholder="Alt text (describe the image)"
+                  maxLength={200}
+                  aria-label="Alt text"
+                />
               </div>
             )}
             {b.type === "cta" && (
@@ -415,11 +406,8 @@ export function ContentEditor({ doc, isPost, services = [], offers = null, categ
                     ))}
                   </datalist>
                 </Field>
-                <Field label="Cover image" hint="Unsplash id (photo-…) or https://… image address">
-                  <div className="grid gap-2">
-                    {coverImage && <Photo src={coverImage.trim()} alt="" sizes={400} className="aspect-[16/9] rounded-lg" />}
-                    <Input value={coverImage} onChange={(e) => setCoverImage(e.target.value)} maxLength={500} />
-                  </div>
+                <Field label="Cover image">
+                  <ImageInput value={coverImage} onChange={setCoverImage} label="Cover image" />
                 </Field>
               </>
             )}

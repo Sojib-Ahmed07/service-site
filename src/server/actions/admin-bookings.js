@@ -6,12 +6,31 @@ import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { activityLog, bookingAddOns, bookingEvents, bookings, payments, providers, users } from "@/db/schema";
+import {
+    activityLog,
+    addOns,
+    bookingAddOns,
+    bookingEvents,
+    bookings,
+    categories,
+    packages,
+    payments,
+    providers,
+    users,
+} from "@/db/schema";
 import { bookingStatus } from "@/lib/constants";
-import { formatISODate, isISODate } from "@/lib/dates";
+import { formatISODate, isISODate, todayISO } from "@/lib/dates";
 import { money2 } from "@/lib/utils";
 import { lockBookings, nextReference } from "@/server/booking-rules";
 import { sendEmail } from "@/server/email";
+import {
+    bookingCancelledByTeam,
+    bookingConfirmedByTeam,
+    bookingUpdatedByTeam,
+    proAssigned,
+    taxInvoice,
+    teamMessage,
+} from "@/server/email-templates";
 import { logError } from "@/server/errors";
 import { cents, priceBooking } from "@/server/pricing";
 import { getBookingRules, getBusiness, getPaymentSettings } from "@/server/queries/settings";
@@ -23,6 +42,16 @@ const failed = (tag, err, msg = "Something went wrong. Please try again.") => {
     return { ok: false, error: msg };
 };
 const who = (admin) => `${admin.name.split(" ")[0]} (admin)`;
+
+/**
+ * For emails sent after a change is already saved: a toast warning when the email didn't go out
+ * (or was only printed because email isn't connected yet). Undefined when it was delivered.
+ */
+function emailWarning(sent, saved) {
+    if (!sent || sent.skipped || sent.delivered) return undefined;
+    if (!sent.ok) return `${saved}, but the email wasn’t sent: ${sent.error}`;
+    return `${saved}. Email isn’t connected yet, so it was printed in the server terminal.`;
+}
 
 function refresh(reference) {
     revalidatePath("/admin", "layout");
@@ -44,11 +73,15 @@ async function load(reference) {
             serviceDate: bookings.serviceDate,
             timeSlot: bookings.timeSlot,
             addressLine: bookings.addressLine,
+            service: categories.name,
+            packageName: packages.name,
             customerName: users.name,
             customerEmail: users.email,
         })
         .from(bookings)
         .innerJoin(users, eq(bookings.userId, users.id))
+        .innerJoin(categories, eq(bookings.categoryId, categories.id))
+        .innerJoin(packages, eq(bookings.packageId, packages.id))
         .where(eq(bookings.reference, String(reference)))
         .limit(1);
     return b ?? null;
@@ -272,15 +305,32 @@ export async function updateBookingDetails(reference, input) {
                 .where(eq(bookings.id, b.id));
             await log(tx, admin, b.id, "status", `Details edited: ${changes.join("; ") || "notes"}`, `Edited ${b.reference}`);
         });
+        let sent;
         if (v.notify === "email" && changes.length) {
-            await sendEmail({
-                to: b.customerEmail,
-                subject: `Booking ${b.reference} updated`,
-                text: `Hi ${b.customerName.split(" ")[0]},\n\nWe’ve updated your booking ${b.reference}:\n${formatISODate(v.date)}, ${v.slot}\n${v.address}\nTotal ${money2(total)} (GST incl.)\n\nQuestions? Call ${business.phone}.`,
-            });
+            sent = await sendEmail(
+                bookingUpdatedByTeam(business, {
+                    reference: b.reference,
+                    name: b.customerName,
+                    email: b.customerEmail,
+                    service: b.service,
+                    packageName: b.packageName,
+                    date: v.date,
+                    slot: v.slot,
+                    address: v.address,
+                    total,
+                }),
+            );
+            if (sent.ok && !sent.skipped) {
+                await db.insert(bookingEvents).values({
+                    bookingId: b.id,
+                    type: "status",
+                    message: sent.delivered ? "Customer emailed about the changes" : "Update email printed in the terminal (email not connected)",
+                    actorId: admin.id,
+                });
+            }
         }
         refresh(b.reference);
-        return { ok: true };
+        return { ok: true, warning: emailWarning(sent, "Booking updated") };
     } catch (err) {
         return failed("updateBookingDetails", err);
     }
@@ -316,14 +366,19 @@ export async function adminCancelBooking(reference, reason, refund) {
                         : ", no refund";
             await log(tx, admin, b.id, "status", `Cancelled by admin (${why})${refundNote}`, `Cancelled ${b.reference} (${why})`);
         });
-        await sendEmail({
-            to: b.customerEmail,
-            event: "cancellation",
-            subject: `Booking ${b.reference} cancelled`,
-            text: `Hi ${b.customerName.split(" ")[0]},\n\nYour booking ${b.reference} on ${formatISODate(b.serviceDate)} has been cancelled.${paid && refund === "full" ? " A full refund is on its way." : ""}\n\nSorry for any inconvenience.`,
-        });
+        const business = await getBusiness();
+        const sent = await sendEmail(
+            bookingCancelledByTeam(business, {
+                reference: b.reference,
+                name: b.customerName,
+                email: b.customerEmail,
+                date: b.serviceDate,
+                slot: b.timeSlot,
+                refund: paid ? refund : "none",
+            }),
+        );
         refresh(b.reference);
-        return { ok: true };
+        return { ok: true, warning: emailWarning(sent, "Booking cancelled") };
     } catch (err) {
         return failed("adminCancelBooking", err);
     }
@@ -365,13 +420,14 @@ export async function sendTeamMessage(reference, text) {
             .insert(bookingEvents)
             .values({ bookingId: b.id, type: "message_team", message: body, actorId: admin.id })
             .returning();
-        await sendEmail({
-            to: b.customerEmail,
-            subject: `New message about booking ${b.reference}`,
-            text: `${body}\n\nReply from your account: ${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/account/bookings/${b.reference}`,
-        });
+        const business = await getBusiness();
+        const sent = await sendEmail(teamMessage(business, { reference: b.reference, name: b.customerName, email: b.customerEmail }, body));
         refresh(b.reference);
-        return { ok: true, message: { from: "team", text: ev.message, at: ev.createdAt.toISOString() } };
+        return {
+            ok: true,
+            message: { from: "team", text: ev.message, at: ev.createdAt.toISOString() },
+            warning: emailWarning(sent, "Message saved in their account"),
+        };
     } catch (err) {
         return failed("sendTeamMessage", err);
     }
@@ -399,40 +455,103 @@ export async function notifyCustomerAssigned(reference) {
     try {
         const b = await load(reference);
         if (!b?.providerId) return { ok: false, error: "Assign a provider first." };
-        await sendEmail({
-            to: b.customerEmail,
-            subject: `Your pro is booked — ${b.reference}`,
-            text: `Hi ${b.customerName.split(" ")[0]},\n\nA vetted local pro has been assigned to your booking on ${formatISODate(b.serviceDate)}, ${b.timeSlot}.\nWe’ll remind you the day before.`,
-        });
-        await db.transaction((tx) => log(tx, admin, b.id, "assigned", "Customer emailed that a pro is assigned"));
+        const business = await getBusiness();
+        const sent = await sendEmail(
+            proAssigned(business, {
+                reference: b.reference,
+                name: b.customerName,
+                email: b.customerEmail,
+                date: b.serviceDate,
+                slot: b.timeSlot,
+                address: b.addressLine,
+            }),
+        );
+        if (!sent.ok) return { ok: false, error: `The email wasn’t sent: ${sent.error}` };
+        await db.transaction((tx) =>
+            log(
+                tx,
+                admin,
+                b.id,
+                "assigned",
+                sent.delivered ? "Customer emailed that a pro is assigned" : "“Pro assigned” email printed in the terminal (email not connected)",
+            ),
+        );
         refresh(b.reference);
-        return { ok: true };
+        return { ok: true, warning: emailWarning(sent, "Saved") };
     } catch (err) {
         return failed("notifyCustomerAssigned", err);
     }
 }
 
+/** Emails an Australian tax invoice (line items, GST, ABN) to the customer. */
 export async function emailInvoice(reference) {
     const admin = await getAdmin();
     if (!admin) return denied;
     try {
         const [b, business, terms] = await Promise.all([load(reference), getBusiness(), getPaymentSettings()]);
         if (!b) return { ok: false, error: "Booking not found." };
+        if (b.status === "cancelled") return { ok: false, error: "This booking is cancelled, so there’s nothing to invoice." };
+        const [[amounts], extras] = await Promise.all([
+            db
+                .select({
+                    subtotal: bookings.subtotal,
+                    discount: bookings.discount,
+                    surcharge: bookings.surcharge,
+                    couponCode: bookings.couponCode,
+                })
+                .from(bookings)
+                .where(eq(bookings.id, b.id)),
+            db
+                .select({ name: addOns.name, price: bookingAddOns.price })
+                .from(bookingAddOns)
+                .innerJoin(addOns, eq(bookingAddOns.addOnId, addOns.id))
+                .where(eq(bookingAddOns.bookingId, b.id)),
+        ]);
         const total = Number(b.total);
-        const due = Number(terms.invoiceDays) > 0 ? `Payment due within ${terms.invoiceDays} days.` : "Payment due on receipt.";
-        await sendEmail({
-            to: b.customerEmail,
-            subject: `Tax invoice for booking ${b.reference}`,
-            text: [
-                `TAX INVOICE — ${business.name} (ABN ${business.abn})`,
-                `Booking ${b.reference}, ${formatISODate(b.serviceDate)}`,
-                `Total ${money2(total)} including GST of ${money2(total / 11)}`,
-                b.paymentStatus === "paid" ? "Status: paid, thank you." : due,
-            ].join("\n"),
-        });
-        await db.transaction((tx) => log(tx, admin, b.id, "payment", "Tax invoice emailed to customer"));
+        const extrasTotal = extras.reduce((sum, x) => sum + Number(x.price), 0);
+        const subtotal = Number(amounts.subtotal);
+        const discount = Number(amounts.discount);
+        const surcharge = Number(amounts.surcharge);
+        // Subtotal = package + extras + area surcharge (pricing.js), so the package line is what's left
+        // after the extras and surcharge — the price at booking time, even if the catalogue changed since.
+        const lines = [
+            { name: `${b.service} — ${b.packageName}`, amount: cents(subtotal - extrasTotal - surcharge) },
+            ...extras.map((x) => ({ name: x.name, amount: Number(x.price) })),
+        ];
+        // Any price an admin set by hand (phone bookings, edits) shows as an adjustment so the lines add up.
+        const adjustment = cents(total - (subtotal - discount));
+        const sent = await sendEmail(
+            taxInvoice(
+                business,
+                {
+                    reference: b.reference,
+                    name: b.customerName,
+                    email: b.customerEmail,
+                    date: b.serviceDate,
+                    lines,
+                    surcharge,
+                    discount,
+                    couponCode: amounts.couponCode,
+                    adjustment: Math.abs(adjustment) >= 0.01 ? adjustment : 0,
+                    total,
+                    paid: b.paymentStatus === "paid",
+                },
+                todayISO(),
+                terms.invoiceDays,
+            ),
+        );
+        if (!sent.ok) return { ok: false, error: `The invoice wasn’t sent: ${sent.error}` };
+        await db.transaction((tx) =>
+            log(
+                tx,
+                admin,
+                b.id,
+                "payment",
+                sent.delivered ? "Tax invoice emailed to customer" : "Tax invoice printed in the terminal (email not connected)",
+            ),
+        );
         refresh(b.reference);
-        return { ok: true };
+        return { ok: true, warning: emailWarning(sent, "Invoice ready") };
     } catch (err) {
         return failed("emailInvoice", err);
     }
@@ -557,18 +676,41 @@ export async function createAdminBooking(input) {
                 `Booked by ${who(admin)} by phone/email${v.override ? `, price set to ${money2(total)}` : ""}`,
                 `New booking ${reference} — ${q.category.name}, ${q.suburb.name} (phone)`,
             );
-            return { reference, email, name };
+            return { reference, email, name, bookingId: b.id };
         });
 
+        let sent;
         if (v.sendConfirmation) {
-            await sendEmail({
-                to: result.email,
-                subject: `Booking ${result.reference} confirmed — ${q.category.name}`,
-                text: `Hi ${result.name.split(" ")[0]},\n\nThanks for booking ${q.category.name} (${q.package.name}).\n${formatISODate(v.date)}, ${v.slot}\n${v.street}, ${q.suburb.name}\nTotal ${money2(total)} (GST incl.)${v.payment === "paid" ? ", paid" : ", payable after the job"}.\nYour reference is ${result.reference}.`,
-            });
+            const business = await getBusiness();
+            sent = await sendEmail(
+                bookingConfirmedByTeam(business, {
+                    reference: result.reference,
+                    name: result.name,
+                    email: result.email,
+                    service: q.category.name,
+                    packageName: q.package.name,
+                    date: v.date,
+                    slot: v.slot,
+                    address: `${v.street}, ${q.suburb.name} TAS ${q.suburb.postcode}`,
+                    total,
+                    paid: v.payment === "paid",
+                }),
+            );
+            if (!sent.skipped) {
+                await db.insert(bookingEvents).values({
+                    bookingId: result.bookingId,
+                    type: "status",
+                    message: !sent.ok
+                        ? `Confirmation email not sent: ${sent.error}`
+                        : sent.delivered
+                            ? "Confirmation emailed to customer"
+                            : "Confirmation printed in the terminal (email not connected)",
+                    actorId: admin.id,
+                });
+            }
         }
         refresh(result.reference);
-        return { ok: true, reference: result.reference };
+        return { ok: true, reference: result.reference, warning: emailWarning(sent, "Booking created") };
     } catch (err) {
         if (err.message === "NO_CUSTOMER") return { ok: false, error: "That customer no longer exists." };
         if (err.message === "ADMIN_EMAIL") return { ok: false, error: "That email belongs to an admin account." };

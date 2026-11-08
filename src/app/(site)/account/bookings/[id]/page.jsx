@@ -67,6 +67,7 @@ export default async function MyBookingDetailPage({ params }) {
           currentDate={b.date}
           currentSlot={b.slot}
           freeHours={freeHours}
+          guaranteeHours={Number(rules.guaranteeHours) || 48}
         />
       </div>
 

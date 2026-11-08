@@ -119,7 +119,7 @@ export const getProvidersFull = cache(async () => {
             joined: p.createdAt.toISOString(),
             skills: skillMap.get(p.id) ?? [],
             zones: zoneMap.get(p.id) ?? [],
-            docs: d.map((x) => ({ type: x.type, verified: x.verified, expiresOn: x.expiresOn })),
+            docs: d.map((x) => ({ type: x.type, verified: x.verified, expiresOn: x.expiresOn, file: x.fileUrl ?? "" })),
             jobs: jobsMap.get(p.id) ?? 0,
             ...complianceOf(d, today),
         };
@@ -528,6 +528,7 @@ export async function getInbox() {
             subject: e.subject ?? "",
             message: e.message,
             replies: e.replies ?? [],
+            attachments: e.attachments ?? [],
             status: e.status,
             date: e.createdAt.toISOString(),
         })),

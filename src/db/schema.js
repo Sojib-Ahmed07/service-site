@@ -23,6 +23,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 /* Enums ------------------------------------------------------------------- */
 export const roleEnum = pgEnum("role", ["customer", "admin"]);
 export const bookingStatusEnum = pgEnum("booking_status", [
@@ -334,7 +335,14 @@ export const bookingEvents = pgTable(
     actorId: text("actor_id").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("booking_events_booking_idx").on(t.bookingId)],
+  (t) => [
+    index("booking_events_booking_idx").on(t.bookingId),
+    // The daily job's emails (see server/notifications.js) can only be recorded once per booking,
+    // so a reminder or review request can never go out twice.
+    uniqueIndex("booking_events_once_idx")
+      .on(t.bookingId, t.type)
+      .where(sql`"type" in ('email_reminder', 'email_review')`),
+  ],
 );
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
@@ -460,6 +468,7 @@ export const enquiries = pgTable("enquiries", {
   subject: varchar("subject", { length: 200 }),
   message: text("message").notNull(),
   replies: jsonb("replies").$type().default([]).notNull(), // [{ by, text, at }]
+  attachments: jsonb("attachments").$type().default([]).notNull(), // private file refs ["cld:…"] (problem photos)
   status: enquiryStatusEnum("status").default("open").notNull(),
   ...timestamps,
 });

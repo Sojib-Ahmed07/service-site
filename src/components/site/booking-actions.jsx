@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Send } from "lucide-react";
+import { Image as ImageIcon, Send } from "lucide-react";
 import { formatISODate, weekdayIndex } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { cancelBooking, rescheduleBooking, reportProblem, sendBookingMessage, submitReview } from "@/server/actions/bookings";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Modal, useToast } from "@/components/ui/interactive";
+import { UploadButton, useUploadsEnabled } from "@/components/ui/upload";
 
 /**
  * Reschedule / cancel / review / report on a customer's booking. Every action is
@@ -32,6 +33,7 @@ export function BookingActions({
   currentDate,
   currentSlot,
   freeHours = 24,
+  guaranteeHours = 48,
 }) {
   const router = useRouter();
   const [modal, setModal] = useState(null);
@@ -81,6 +83,8 @@ export function BookingActions({
   const [stars, setStars] = useState(0);
   const [reviewText, setReviewText] = useState("");
   const [problem, setProblem] = useState("");
+  const [photos, setPhotos] = useState([]); // [{ ref, name }] uploaded problem photos
+  const uploads = useUploadsEnabled();
 
   const ErrorLine = () => (error ? <p className="mt-4 text-sm text-danger">{error}</p> : null);
 
@@ -230,19 +234,70 @@ export function BookingActions({
         open={modal === "problem"}
         onClose={close}
         title="Report a problem"
-        description="Covered by our 48-hour guarantee. We’ll be in touch today."
+        description={`Covered by our ${guaranteeHours}-hour guarantee. We’ll be in touch today.`}
         footer={
           <Button
             disabled={pending || problem.trim().length < 10}
-            onClick={() => run(() => reportProblem(bookingRef, problem), "Problem reported — we’ll call you shortly")}
+            onClick={() =>
+              run(async () => {
+                const res = await reportProblem(
+                  bookingRef,
+                  problem,
+                  photos.map((p) => p.ref),
+                );
+                if (res.ok) {
+                  setProblem("");
+                  setPhotos([]);
+                }
+                return res;
+              }, "Problem reported — we’ll call you shortly")
+            }
           >
             {pending ? "Sending…" : "Send report"}
           </Button>
         }
       >
-        <Field label="What wasn’t right?" htmlFor="pb-text" hint="If photos would help, we’ll ask for them when we call.">
+        <Field
+          label="What wasn’t right?"
+          htmlFor="pb-text"
+          hint={uploads ? undefined : "If photos would help, we’ll ask for them when we call."}
+        >
           <Textarea id="pb-text" value={problem} onChange={(e) => setProblem(e.target.value)} maxLength={5000} />
         </Field>
+        {uploads && (
+          <div className="mt-4 space-y-2">
+            <p className="text-sm font-medium">Photos (optional)</p>
+            <p className="text-sm text-muted">Up to 3 photos, JPG, PNG or WebP, 5 MB each. Only our team can see them.</p>
+            {photos.length > 0 && (
+              <ul className="space-y-1">
+                {photos.map((p) => (
+                  <li key={p.ref} className="flex items-center justify-between gap-3 rounded-lg bg-paper px-3 py-2 text-sm ring-1 ring-line">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ImageIcon className="size-4 shrink-0 text-muted" />
+                      <span className="truncate">{p.name}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-medium text-danger hover:underline"
+                      onClick={() => setPhotos((list) => list.filter((x) => x.ref !== p.ref))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {photos.length < 3 && (
+              <UploadButton
+                kind="problem_photo"
+                context={bookingRef}
+                label="Add a photo"
+                disabled={pending}
+                onUploaded={(ref, meta) => setPhotos((list) => [...list, { ref, name: meta?.name || "Photo" }])}
+              />
+            )}
+          </div>
+        )}
         <ErrorLine />
       </Modal>
       {toastNode}
@@ -318,7 +373,7 @@ export function MessageThread({ bookingRef, initial = [], as = "customer" }) {
           start(async () => {
             const res = await (as === "team" ? sendTeamMessage : sendBookingMessage)(bookingRef, value);
             if (!res.ok) return setError(res.error);
-            setError("");
+            setError(res.warning ?? "");
             setMsgs((x) => [...x, res.message]);
             setText("");
           });

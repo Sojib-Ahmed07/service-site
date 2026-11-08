@@ -48,7 +48,7 @@ export function SiteHeader({ announcement, categories = [], business, user = nul
       )}
       <div className="border-b border-line bg-white/95 backdrop-blur-md">
         <div className="container-x flex h-[68px] items-center gap-8">
-          <Logo name={site.name} />
+          <Logo name={site.name} src={site.logo} />
 
           <nav className="hidden items-center gap-0.5 lg:flex" onMouseLeave={() => setMega(false)}>
             <button
@@ -147,7 +147,7 @@ export function SiteHeader({ announcement, categories = [], business, user = nul
       {mobile && (
         <div className="fixed inset-0 z-50 bg-white lg:hidden">
           <div className="container-x flex h-[68px] items-center justify-between border-b border-line">
-            <Logo name={site.name} />
+            <Logo name={site.name} src={site.logo} />
             <button className="-mr-2 rounded-lg p-2 hover:bg-ink-50" onClick={() => setMobile(false)} aria-label="Close menu">
               <X className="size-6" />
             </button>

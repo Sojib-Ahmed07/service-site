@@ -10,7 +10,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
-import { Photo } from "@/components/ui/photo";
+import { ImageInput } from "@/components/ui/upload";
 import { Switch, Tabs, useToast } from "@/components/ui/interactive";
 
 const slugify = (s) =>
@@ -233,22 +233,15 @@ export function ServiceEditor({ service, packages: initialPackages = [], addOns:
         </Card>
         <Card>
           <CardHeader title="Image" />
-          <div className="space-y-3 p-5">
-            {s.heroImage ? (
-              <Photo src={s.heroImage} alt="" sizes={600} className="aspect-[4/3] rounded-xl" />
-            ) : (
-              <div className="grid aspect-[4/3] place-items-center rounded-xl border-2 border-dashed border-line-strong text-sm text-muted">
-                No image
-              </div>
-            )}
-            <Field label="Image URL or Unsplash photo id" htmlFor="sv-image" hint="Uploads come in a later update.">
-              <Input
-                id="sv-image"
-                value={s.heroImage}
-                maxLength={500}
-                onChange={(e) => set("heroImage", e.target.value.trim())}
-              />
-            </Field>
+          <div className="p-5">
+            <ImageInput
+              id="sv-image"
+              label="Service image"
+              value={s.heroImage}
+              onChange={(v) => set("heroImage", v.trim())}
+              sizes={600}
+              aspect="aspect-[4/3]"
+            />
           </div>
         </Card>
       </div>

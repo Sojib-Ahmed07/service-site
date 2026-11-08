@@ -7,9 +7,15 @@ import { CtaBand } from "@/components/site/server-sections";
 import { getPage } from "@/server/queries/content";
 import { isBuiltInPage } from "@/lib/cms";
 
+/** Custom page slugs are lowercase letters, numbers and dashes (see slugify in lib/cms.js). */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 async function load(params) {
     const { slug } = await params;
-    const path = `/${String(slug).toLowerCase()}`;
+    const clean = String(slug ?? "").toLowerCase();
+    // Requests like /favicon.ico or /robots.txt can't be pages: 404 straight away, no database query.
+    if (!SLUG.test(clean) || clean.length > 120) return null;
+    const path = `/${clean}`;
     // Built-in pages have their own routes; never render them twice.
     if (isBuiltInPage(path)) return null;
     return getPage(path);

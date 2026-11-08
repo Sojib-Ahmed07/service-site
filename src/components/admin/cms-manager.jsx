@@ -12,7 +12,7 @@ import { Badge, Card, CardHeader, EmptyState, Table, Td, Th } from "@/components
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Modal, Switch, Tabs, useToast } from "@/components/ui/interactive";
-import { Photo } from "@/components/ui/photo";
+import { ImageInput } from "@/components/ui/upload";
 
 const statusTone = { published: "success", draft: "brand", archived: "neutral" };
 const day = (iso) => (iso ? formatDate(iso, { day: "numeric", month: "short", year: "numeric" }) : "—");
@@ -157,7 +157,7 @@ function HomepageTab({ home, setHome, toast }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
   const set = (k) => (e) => setHome((h) => ({ ...h, [k]: e.target.value }));
-  const setImage = (k) => (e) => setHome((h) => ({ ...h, images: { ...h.images, [k]: e.target.value } }));
+  const setImage = (k) => (v) => setHome((h) => ({ ...h, images: { ...h.images, [k]: v } }));
   const setStep = (i, k, v) => setHome((h) => ({ ...h, steps: h.steps.map((s, j) => (j === i ? { ...s, [k]: v } : s)) }));
   const setPoint = (i, v) => setHome((h) => ({ ...h, teamPoints: h.teamPoints.map((p, j) => (j === i ? v : p)) }));
   const moveSection = (i, d) =>
@@ -338,7 +338,7 @@ function HomepageTab({ home, setHome, toast }) {
         <Card>
           <CardHeader
             title="Photos"
-            description="An Unsplash photo id (photo-…) or a full https:// image address. Leave empty to keep the current photo."
+            description="Upload a photo, or use an Unsplash photo id (photo-…) or a full https:// image address. Leave empty to keep the current photo."
           />
           <div className="grid gap-5 p-5 sm:grid-cols-2">
             {[
@@ -348,10 +348,7 @@ function HomepageTab({ home, setHome, toast }) {
               ["livingRoom", "Login and sign-up pages"],
             ].map(([k, l]) => (
               <Field key={k} label={l}>
-                <div className="grid gap-2">
-                  <Photo src={home.images[k]} alt="" sizes={400} className="aspect-[16/9] rounded-lg" />
-                  <Input value={home.images[k]} onChange={setImage(k)} placeholder="photo-… or https://…" maxLength={500} />
-                </div>
+                <ImageInput value={home.images[k] ?? ""} onChange={setImage(k)} label={l} />
               </Field>
             ))}
           </div>

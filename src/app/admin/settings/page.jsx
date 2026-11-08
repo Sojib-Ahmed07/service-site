@@ -1,6 +1,7 @@
 // src/app/admin/settings/page.jsx
 import { SettingsView } from "@/components/admin/settings-view";
 import { AdminHeader } from "@/components/admin/ui";
+import { emailStatus } from "@/server/email";
 import { getTeam } from "@/server/queries/admin-content";
 import { getBookingRules, getBusiness, getNotificationSettings, getPaymentSettings } from "@/server/queries/settings";
 import { requireAdmin } from "@/server/session";
@@ -29,7 +30,9 @@ export default async function SettingsPage({ searchParams }) {
         notifications={notifications}
         payments={payments}
         team={team}
-        me={{ id: me.id, teamRole: me.teamRole }}
+        me={{ id: me.id, email: me.email, teamRole: me.teamRole }}
+        email={emailStatus()}
+        cronReady={(process.env.CRON_SECRET?.trim().length ?? 0) >= 16}
       />
     </div>
   );

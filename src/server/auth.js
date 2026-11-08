@@ -16,6 +16,8 @@ import { db } from "@/db";
 import { accounts, sessions, users, verifications } from "@/db/schema";
 import { site } from "@/lib/site";
 import { sendEmail } from "@/server/email";
+import { passwordReset } from "@/server/email-templates";
+import { getBusiness } from "@/server/queries/settings";
 
 const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
@@ -37,12 +39,11 @@ export const auth = betterAuth({
         requireEmailVerification: false,
         resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
         revokeSessionsOnPasswordReset: true,
+        // Security email: always sent, whatever the customer's notification settings.
         sendResetPassword: async ({ user, url }) => {
-            await sendEmail({
-                to: user.email,
-                subject: `Reset your ${site.name} password`,
-                text: `Hi ${user.name.split(" ")[0]},\n\nUse this link to choose a new password (it expires in 1 hour):\n${url}\n\nIf you didn't ask for this, you can ignore this email.`,
-            });
+            const res = await sendEmail(passwordReset(await getBusiness(), user, url));
+            // Throwing lets callers tell the difference (the customer still sees the same neutral message).
+            if (!res.ok) throw new Error(`EMAIL_FAILED: ${res.error}`);
         },
     },
 

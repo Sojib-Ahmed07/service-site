@@ -3,21 +3,25 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { CreditCard, Plus, Trash2, UserMinus } from "lucide-react";
+import { CreditCard, Mail, Plus, Trash2, UserMinus } from "lucide-react";
 import {
   addAdmin,
   removeAdmin,
+  runDailyEmailsNow,
   saveBookingRules,
   saveBusiness,
   saveNotifications,
   savePaymentSettings,
+  sendTestEmail,
   setTeamRole,
 } from "@/server/actions/admin-settings";
-import { formatDate } from "@/lib/utils";
+import { optimisedImage } from "@/lib/files";
+import { cn, formatDate } from "@/lib/utils";
 import { Avatar, Badge, Card, CardHeader } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Modal, Switch, Tabs, useToast } from "@/components/ui/interactive";
+import { UploadButton, useUploadsEnabled } from "@/components/ui/upload";
 
 const teamRoles = ["Owner", "Operations", "Support"];
 const intOrNaN = (v) => (String(v).trim() === "" ? Number.NaN : Number(v));
@@ -67,9 +71,20 @@ function useSave(toast, message = "Settings saved") {
 
 /**
  * Admin › Settings. Props come from the server: business, booking (rules),
- * notifications, payments, team ([{ id, name, email, teamRole, lastSeen }]) and me (the admin).
+ * notifications, payments, team ([{ id, name, email, teamRole, lastSeen }]), me (the admin),
+ * email (emailStatus() from server/email.js) and cronReady (CRON_SECRET is set).
  */
-export function SettingsView({ defaultTab = "business", business, booking, notifications, payments, team, me }) {
+export function SettingsView({
+  defaultTab = "business",
+  business,
+  booking,
+  notifications,
+  payments,
+  team,
+  me,
+  email,
+  cronReady,
+}) {
   const { toast, toastNode } = useToast();
   // Form state lives here so switching tabs doesn't throw away unsaved changes.
   const [biz, setBiz] = useState({
@@ -85,6 +100,7 @@ export function SettingsView({ defaultTab = "business", business, booking, notif
     region: business.region ?? "",
     facebook: business.social?.facebook ?? "",
     instagram: business.social?.instagram ?? "",
+    logo: business.logo ?? "",
   });
   const [rules, setRules] = useState({
     minNoticeHours: String(booking.minNoticeHours ?? 24),
@@ -98,8 +114,15 @@ export function SettingsView({ defaultTab = "business", business, booking, notif
   });
   const [notes, setNotes] = useState({
     jobSheetTemplate: notifications.jobSheetTemplate ?? "",
-    emails: { confirmation: notifications.emails?.confirmation !== false, cancellation: notifications.emails?.cancellation !== false },
+    emails: {
+      confirmation: notifications.emails?.confirmation !== false,
+      changes: notifications.emails?.changes !== false,
+      cancellation: notifications.emails?.cancellation !== false,
+      reminder: notifications.emails?.reminder !== false,
+      review: notifications.emails?.review !== false,
+    },
     adminNewBooking: notifications.adminNewBooking !== false,
+    adminChanges: notifications.adminChanges !== false,
   });
   const [invoiceDays, setInvoiceDays] = useState(String(payments.invoiceDays ?? 7));
 
@@ -113,7 +136,17 @@ export function SettingsView({ defaultTab = "business", business, booking, notif
           {
             id: "notifications",
             label: "Notifications",
-            content: <NotificationsTab notes={notes} setNotes={setNotes} businessEmail={business.email} toast={toast} />,
+            content: (
+              <NotificationsTab
+                notes={notes}
+                setNotes={setNotes}
+                businessEmail={business.email}
+                myEmail={me.email}
+                email={email}
+                cronReady={cronReady}
+                toast={toast}
+              />
+            ),
           },
           {
             id: "payments",
@@ -147,11 +180,13 @@ function BusinessTab({ biz, setBiz, toast }) {
         city: biz.city,
         region: biz.region,
         social: { facebook: biz.facebook.trim(), instagram: biz.instagram.trim() },
+        logo: biz.logo,
       }),
     );
   return (
     <Card>
       <CardHeader title="Business details" description="Shown in the header, footer, contact page, emails and invoices." />
+      <LogoField logo={biz.logo} name={biz.name} onChange={(logo) => setBiz((b) => ({ ...b, logo }))} />
       <div className="grid gap-4 p-5 sm:grid-cols-2">
         <Field label="Business name">
           <Input value={biz.name} onChange={set("name")} maxLength={80} />
@@ -195,6 +230,47 @@ function BusinessTab({ biz, setBiz, toast }) {
       </div>
       <SaveBar pending={pending} error={error} onSave={save} />
     </Card>
+  );
+}
+
+/** Logo upload. Changes are kept with the other business details until you press Save. */
+function LogoField({ logo, name, onChange }) {
+  const uploads = useUploadsEnabled();
+  const [error, setError] = useState("");
+  return (
+    <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center">
+      <div className="grid h-16 w-44 shrink-0 place-items-center rounded-xl border border-line bg-white px-3">
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={optimisedImage(logo, 360)} alt={`${name || "Business"} logo`} className="max-h-10 max-w-full object-contain" />
+        ) : (
+          <span className="text-[19px] font-semibold tracking-[-0.04em]">{(name || "sorted").toLowerCase()}</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">Logo</p>
+        <p className="text-sm text-muted">
+          {uploads
+            ? "PNG, JPG or WebP, up to 5 MB. A wide logo on a transparent or white background works best. Shown in the header, sign-in pages and emails (the dark footer keeps the text name)."
+            : logo
+              ? "Logo upload isn’t switched on right now, so the logo can’t be changed. You can still remove it."
+              : "Logo upload isn’t switched on yet. Until then the site shows your business name as text."}
+        </p>
+        {error && (
+          <p role="alert" className="mt-1 text-sm text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <UploadButton kind="logo" label={logo ? "Replace" : "Upload logo"} onUploaded={(ref) => onChange(ref)} onError={setError} />
+        {logo && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
+            Remove
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -289,57 +365,130 @@ function BookingTab({ rules, setRules, toast }) {
 
 /* Notifications ------------------------------------------------------------- */
 
-function NotificationsTab({ notes, setNotes, businessEmail, toast }) {
+/** Connection status, "Send test email" and "Run now" for the daily emails. */
+function EmailConnection({ email, cronReady, myEmail }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState(null); // { ok, text }
+  const act = (fn) =>
+    start(async () => {
+      setResult(null);
+      try {
+        const res = await fn();
+        setResult({ ok: res.ok, text: res.ok ? res.message : res.error });
+        router.refresh();
+      } catch {
+        setResult({ ok: false, text: "Something went wrong. Please try again." });
+      }
+    });
+  return (
+    <Card>
+      <CardHeader title="Email delivery" description="Emails are sent through Brevo." />
+      <div className="divide-y divide-line border-b border-line">
+        <Row
+          label="Brevo"
+          hint={
+            email.connected
+              ? `Sending from ${email.from}. Replies go to the business email.`
+              : email.fromInvalid
+                ? "EMAIL_FROM isn’t a valid email address. Fix it in the server settings (.env.local)."
+                : !email.hasKey
+                  ? `Add BREVO_API_KEY and EMAIL_FROM to the server settings (.env.local) to switch it on.${email.printsInTerminal ? " Until then emails are printed in the server terminal." : ""}`
+                  : `Add EMAIL_FROM (a sender you’ve verified in Brevo) to the server settings.${email.printsInTerminal ? " Until then emails are printed in the server terminal." : ""}`
+          }
+        >
+          {email.connected ? <Badge tone="success">Connected</Badge> : <Badge tone="warn">Not connected</Badge>}
+        </Row>
+        <Row
+          label="Daily emails"
+          hint={
+            cronReady
+              ? "Reminders for tomorrow’s jobs and review requests go out every morning. Run now to send any that are due (nothing is sent twice)."
+              : "Add CRON_SECRET to the server settings so they go out every morning. You can still run them by hand."
+          }
+        >
+          {cronReady ? <Badge tone="success">Scheduled</Badge> : <Badge tone="neutral">Not scheduled</Badge>}
+        </Row>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+        <Button variant="outline" onClick={() => act(sendTestEmail)} disabled={pending}>
+          <Mail /> Send test email
+        </Button>
+        <Button variant="outline" onClick={() => act(runDailyEmailsNow)} disabled={pending}>
+          Run daily emails now
+        </Button>
+        {pending && <span className="text-sm text-muted">Working…</span>}
+      </div>
+      {result ? (
+        <p role={result.ok ? "status" : "alert"} className={cn("px-5 pb-4 text-sm", result.ok ? "text-muted" : "text-danger")}>
+          {result.text}
+        </p>
+      ) : (
+        <p className="px-5 pb-4 text-sm text-muted">The test email goes to {myEmail}.</p>
+      )}
+    </Card>
+  );
+}
+
+function NotificationsTab({ notes, setNotes, businessEmail, myEmail, email, cronReady, toast }) {
   const { pending, error, run } = useSave(toast, "Notification settings saved");
   const setEmail = (k, v) => setNotes((n) => ({ ...n, emails: { ...n.emails, [k]: v } }));
   const save = () => run(() => saveNotifications(notes));
+  const customerEmails = [
+    ["confirmation", "Booking received", "When a customer books online."],
+    ["changes", "Customer changes", "A copy for the customer when they reschedule or cancel online."],
+    ["cancellation", "Booking cancelled", "When you cancel a booking."],
+    ["reminder", "Day-before reminder", "The morning before the job, once a pro is assigned."],
+    ["review", "Review request", "The morning after a job is marked completed."],
+  ];
   return (
-    <Card>
-      <CardHeader
-        title="Automatic customer emails"
-        description="Emails you send yourself from a booking (updates, invoices, “pro assigned”) always go out."
-      />
-      <div className="divide-y divide-line border-b border-line">
-        <Row label="Booking received" hint="When a customer books online.">
-          <Switch
-            checked={notes.emails.confirmation}
-            onChange={(v) => setEmail("confirmation", v)}
-            label="Booking received email"
-          />
-        </Row>
-        <Row label="Booking cancelled" hint="When you cancel a booking.">
-          <Switch
-            checked={notes.emails.cancellation}
-            onChange={(v) => setEmail("cancellation", v)}
-            label="Booking cancelled email"
-          />
-        </Row>
-      </div>
-      <CardHeader title="Admin alerts" />
-      <div className="divide-y divide-line border-b border-line">
-        <Row label="Email me about new bookings" hint={`Sent to ${businessEmail || "the business email"}.`}>
-          <Switch
-            checked={notes.adminNewBooking}
-            onChange={(v) => setNotes((n) => ({ ...n, adminNewBooking: v }))}
-            label="New booking alerts"
-          />
-        </Row>
-      </div>
-      <CardHeader
-        title="Provider job sheet"
-        description="Filled in when you open “Send job sheet” on a booking. Variables: {booking_id} {service} {package} {date} {slot} {address} {access_notes} {provider_pay}"
-      />
-      <div className="px-5 pb-5">
-        <Textarea
-          className="min-h-36 font-mono text-sm"
-          value={notes.jobSheetTemplate}
-          onChange={(e) => setNotes((n) => ({ ...n, jobSheetTemplate: e.target.value }))}
-          maxLength={1000}
-          aria-label="Job sheet template"
+    <div className="space-y-6">
+      <EmailConnection email={email} cronReady={cronReady} myEmail={myEmail} />
+      <Card>
+        <CardHeader
+          title="Automatic customer emails"
+          description="Reminders and review requests skip customers who turned off email updates in their account. Emails you send yourself from a booking (updates, invoices, “pro assigned”) always go out."
         />
-      </div>
-      <SaveBar pending={pending} error={error} onSave={save} />
-    </Card>
+        <div className="divide-y divide-line border-b border-line">
+          {customerEmails.map(([key, label, hint]) => (
+            <Row key={key} label={label} hint={hint}>
+              <Switch checked={notes.emails[key]} onChange={(v) => setEmail(key, v)} label={`${label} email`} />
+            </Row>
+          ))}
+        </div>
+        <CardHeader title="Admin alerts" description={`Sent to ${businessEmail || "the business email"}.`} />
+        <div className="divide-y divide-line border-b border-line">
+          <Row label="New bookings" hint="When a customer books online.">
+            <Switch
+              checked={notes.adminNewBooking}
+              onChange={(v) => setNotes((n) => ({ ...n, adminNewBooking: v }))}
+              label="New booking alerts"
+            />
+          </Row>
+          <Row label="Customer changes" hint="When a customer reschedules or cancels online.">
+            <Switch
+              checked={notes.adminChanges}
+              onChange={(v) => setNotes((n) => ({ ...n, adminChanges: v }))}
+              label="Customer change alerts"
+            />
+          </Row>
+        </div>
+        <CardHeader
+          title="Provider job sheet"
+          description="Filled in when you open “Send job sheet” on a booking. Variables: {booking_id} {service} {package} {date} {slot} {address} {access_notes} {provider_pay}"
+        />
+        <div className="px-5 pb-5">
+          <Textarea
+            className="min-h-36 font-mono text-sm"
+            value={notes.jobSheetTemplate}
+            onChange={(e) => setNotes((n) => ({ ...n, jobSheetTemplate: e.target.value }))}
+            maxLength={1000}
+            aria-label="Job sheet template"
+          />
+        </div>
+        <SaveBar pending={pending} error={error} onSave={save} />
+      </Card>
+    </div>
   );
 }
 

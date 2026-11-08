@@ -10,6 +10,10 @@ import { z } from "zod";
 import { db } from "@/db";
 import { accounts, activityLog, sessions, siteSettings, users } from "@/db/schema";
 import { isValidSlot, slotStartTime } from "@/server/booking-rules";
+import { sendEmail } from "@/server/email";
+import { testEmail } from "@/server/email-templates";
+import { runDailyEmails } from "@/server/notifications";
+import { getBusiness } from "@/server/queries/settings";
 import { logError } from "@/server/errors";
 import { getAdmin } from "@/server/session";
 
@@ -82,6 +86,8 @@ const businessSchema = z.object({
     city: z.string().trim().min(2, { error: "Enter the city." }).max(60),
     region: z.string().trim().min(2, { error: "Enter the region you cover." }).max(80),
     social: z.object({ facebook: optionalUrl, instagram: optionalUrl }),
+    // Uploaded logo (Cloudinary https:// address) or "" for the text logo.
+    logo: text(500).refine((v) => v === "" || /^https:\/\/\S+$/.test(v), { error: "The logo must be an uploaded image." }),
 });
 
 export async function saveBusiness(input) {
@@ -132,12 +138,61 @@ export async function saveBookingRules(input) {
 
 const notificationSchema = z.object({
     jobSheetTemplate: z.string().trim().min(10, { error: "The job sheet template is empty." }).max(1000),
-    emails: z.object({ confirmation: z.boolean(), cancellation: z.boolean() }),
+    emails: z.object({
+        confirmation: z.boolean(),
+        changes: z.boolean(),
+        cancellation: z.boolean(),
+        reminder: z.boolean(),
+        review: z.boolean(),
+    }),
     adminNewBooking: z.boolean(),
+    adminChanges: z.boolean(),
 });
 
 export async function saveNotifications(input) {
     return saveSetting("saveNotifications", "notifications", notificationSchema, input, "Updated notification settings");
+}
+
+/** Sends a test email to the signed-in admin. */
+export async function sendTestEmail() {
+    const admin = await getAdmin();
+    if (!admin) return denied;
+    try {
+        const sent = await sendEmail(testEmail(await getBusiness(), admin));
+        if (!sent.ok) return { ok: false, error: sent.error };
+        return {
+            ok: true,
+            message: sent.delivered
+                ? `Test email sent to ${admin.email}. Check your inbox (and spam folder).`
+                : "Email isn’t connected yet, so the test email was printed in the server terminal.",
+        };
+    } catch (err) {
+        return failed("sendTestEmail", err);
+    }
+}
+
+/** Runs the daily emails (reminders + review requests) now. Never sends the same email twice. */
+export async function runDailyEmailsNow() {
+    const admin = await getAdmin();
+    if (!admin) return denied;
+    try {
+        const r = await runDailyEmails();
+        const sent = r.reminders.sent + r.reviews.sent;
+        const failedCount = r.reminders.failed + r.reviews.failed;
+        await db
+            .insert(activityLog)
+            .values({ actorId: admin.id, actorName: who(admin), message: `Ran the daily emails (${sent} sent)` });
+        revalidatePath("/admin", "layout");
+        const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        const summary = `${plural(r.reminders.sent, "reminder")} and ${plural(r.reviews.sent, "review request")} ${r.connected ? "sent" : "printed in the server terminal"
+            }`;
+        if (failedCount) return { ok: false, error: `${summary}. ${plural(failedCount, "email")} failed: ${r.errors.join(" ")}` };
+        const skipped = r.reminders.skipped + r.reviews.skipped;
+        const off = skipped ? ` ${plural(skipped, "email")} skipped because ${skipped === 1 ? "it’s" : "they’re"} switched off.` : "";
+        return { ok: true, message: sent ? `${summary}.${off}` : `Nothing to send right now.${off}` };
+    } catch (err) {
+        return failed("runDailyEmailsNow", err);
+    }
 }
 
 /* Payments ------------------------------------------------------------------ */

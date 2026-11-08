@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { createAdminBooking } from "@/server/actions/admin-bookings";
 import { money } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 
@@ -18,6 +18,8 @@ export function NewBookingForm({ catalog, customers, suburbs, timeSlots, initial
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
+  // Set when the booking was created but its confirmation email didn't go out.
+  const [created, setCreated] = useState(null);
   const [customerMode, setCustomerMode] = useState(customers.length ? "existing" : "new");
   const [customerId, setCustomerId] = useState(
     customers.some((c) => c.id === initialCustomerId) ? initialCustomerId : (customers[0]?.id ?? ""),
@@ -84,6 +86,7 @@ export function NewBookingForm({ catalog, customers, suburbs, timeSlots, initial
             sendConfirmation: v.sendConfirmation,
           });
           if (!res.ok) return setError(res.error);
+          if (res.warning) return setCreated({ reference: res.reference, warning: res.warning });
           router.push(`/admin/bookings/${res.reference}`);
         });
       }}
@@ -256,10 +259,25 @@ export function NewBookingForm({ catalog, customers, suburbs, timeSlots, initial
             </Select>
           </Field>
           <Checkbox checked={v.sendConfirmation} onChange={set("sendConfirmation")} label="Email confirmation to customer" />
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <Button type="submit" className="w-full" size="lg" disabled={pending}>
-            {pending ? "Creating…" : "Create booking"}
-          </Button>
+          {error && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+          {created ? (
+            <>
+              <p role="status" className="text-sm text-warn">
+                {created.warning}
+              </p>
+              <ButtonLink href={`/admin/bookings/${created.reference}`} className="w-full" size="lg">
+                Open booking {created.reference}
+              </ButtonLink>
+            </>
+          ) : (
+            <Button type="submit" className="w-full" size="lg" disabled={pending}>
+              {pending ? "Creating…" : "Create booking"}
+            </Button>
+          )}
         </div>
       </Card>
     </form>

@@ -23,6 +23,7 @@ import { couponRestrictions, serviceGroups, serviceIcons } from "@/lib/constants
 import { formatISODate, hobartToUTC, isISODate } from "@/lib/dates";
 import { money2 } from "@/lib/utils";
 import { sendEmail } from "@/server/email";
+import { paymentReminder } from "@/server/email-templates";
 import { logError } from "@/server/errors";
 import { getBusiness } from "@/server/queries/settings";
 import { getAdmin } from "@/server/session";
@@ -565,16 +566,19 @@ export async function sendPaymentReminder(reference) {
         if (!b) return { ok: false, error: "Booking not found." };
         if (!["unpaid", "partial"].includes(b.payment)) return { ok: false, error: "This booking is already paid." };
         const business = await getBusiness();
-        await sendEmail({
-            to: b.email,
-            subject: `Payment reminder for booking ${b.reference}`,
-            text: `Hi ${b.name.split(" ")[0]},\n\nA friendly reminder that ${money2(b.total)} (GST incl.) is due for booking ${b.reference} on ${formatISODate(b.date)}.\nQuestions? Call ${business.phone}.\n\nThanks,\n${business.name}`,
+        const sent = await sendEmail(paymentReminder(business, b));
+        if (!sent.ok) return { ok: false, error: `The reminder wasn’t sent: ${sent.error}` };
+        await db.insert(bookingEvents).values({
+            bookingId: b.id,
+            type: "payment",
+            message: sent.delivered ? "Payment reminder emailed" : "Payment reminder printed in the terminal (email not connected)",
+            actorId: admin.id,
         });
-        await db
-            .insert(bookingEvents)
-            .values({ bookingId: b.id, type: "payment", message: "Payment reminder emailed", actorId: admin.id });
         revalidatePath(`/admin/bookings/${b.reference}`);
-        return { ok: true, message: "Payment reminder sent" };
+        return {
+            ok: true,
+            message: sent.delivered ? "Payment reminder sent" : "Email isn’t connected yet, so the reminder was printed in the server terminal",
+        };
     } catch (err) {
         return failed("sendPaymentReminder", err);
     }

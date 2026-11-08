@@ -383,7 +383,7 @@ export function BookingFlow({
                   disabled={Boolean(user)}
                 />
               </Field>
-              <Field label="Mobile" htmlFor="phone" hint="For day-of updates by SMS.">
+              <Field label="Mobile" htmlFor="phone" hint="So our team can reach you on the day.">
                 <Input
                   id="phone"
                   type="tel"
